@@ -11,11 +11,6 @@
         "zentinel.view": {
             "class": "CControllerZentinelView",
             "view": "module.monitoring.zentinel.view"
-        },
-        "zentinel.view.refresh": {
-            "class": "CControllerZentinelRefresh",
-            "view": "module.monitoring.zentinel.view.refresh",
-            "layout": "layout.json"
         }
     }
 }
