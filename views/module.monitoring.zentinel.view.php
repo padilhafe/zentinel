@@ -12,11 +12,11 @@ $filter = (new CFilter())
     ->setResetUrl((new CUrl('zabbix.php'))->setArgument('action', 'zentinel.view')->setArgument('filter_rst', 1)) 
     ->setProfile('web.zentinel.filter') 
     ->setActiveTab(CProfile::get('web.zentinel.filter.active', 1))
-    ->addVar('action', 'zentinel.view'); // Essencial para o botão funcionar
+    ->addVar('action', 'zentinel.view');
 
 // 2. Montagem do Formulário
 $filter_form = (new CFormList())
-    // Filtro 1: Grupos de Host (Restaurado)
+    // Filtro 1: Grupos de Host
     ->addRow(_('Show Host Groups'), (new CMultiSelect([
         'name' => 'filter_groupids[]',
         'object_name' => 'hostGroup',
@@ -48,11 +48,12 @@ $filter_form = (new CFormList())
         ]
     ]))->setWidth(ZBX_TEXTAREA_FILTER_STANDARD_WIDTH))
 
-    // Filtro 3: Severidade (Checkboxes)
+    // Filtro 3: Severidade (CORRIGIDO AQUI)
     ->addRow(_('Severity'),
         (new CCheckBoxList('filter_severities'))
             ->setOptions(
-                array_column(\CSeverityHelper::getSeverities(), 'label', 'value')
+                // CORREÇÃO: Usamos 'name' em vez de 'label'
+                array_column(\CSeverityHelper::getSeverities(), 'name', 'value')
             )
             ->setChecked($data['filter_severities'])
             ->setColumns(3)
