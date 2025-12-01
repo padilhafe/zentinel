@@ -7,12 +7,12 @@
 
 $page_title = _('Zentinel: Command Center'); 
 
-// --- 1. Filtro ---
+// 1. Filtro com a correção de ação
 $filter = (new CFilter())
     ->setResetUrl((new CUrl('zabbix.php'))->setArgument('action', 'zentinel.view')->setArgument('filter_rst', 1)) 
     ->setProfile('web.zentinel.filter') 
     ->setActiveTab(CProfile::get('web.zentinel.filter.active', 1))
-    ->addVar('action', 'zentinel.view');
+    ->addVar('action', 'zentinel.view'); // <--- ISSO É CRÍTICO
 
 $filter_form = (new CFormList())
     ->addRow(_('Show Host Groups'), (new CMultiSelect([
@@ -53,8 +53,7 @@ $filter_form = (new CFormList())
 
 $filter->addFilterTab(_('Configuração de Visualização'), [$filter_form]);
 
-// --- 2. CSS Customizado (Correção do Erro Fatal) ---
-// Em vez de $this->includeCss, criamos uma tag style HTML simples
+// 2. CSS Seguro (Compatível Zabbix 6 e 7)
 $css_content = '
     .zentinel-stats { display: flex; gap: 10px; margin-bottom: 10px; }
     .zentinel-card { 
@@ -75,7 +74,7 @@ $css_content = '
 ';
 $style_tag = new CTag('style', true, $css_content);
 
-// --- 3. Cards de Estatísticas ---
+// 3. Widgets
 $stats_widget = (new CDiv())
     ->addClass('zentinel-stats')
     ->addItem([
@@ -100,7 +99,7 @@ $stats_widget = (new CDiv())
         ]))->addClass('zentinel-card'),
     ]);
 
-// --- 4. Função Auxiliar e Separação de Dados ---
+// 4. Helper de Tabela
 $createTable = function($problems) {
     $table = (new CTableInfo())
         ->setHeader([_('Time'), _('Severity'), _('Host'), _('Problem'), _('Duration'), _('Ack')]);
@@ -129,6 +128,7 @@ $createTable = function($problems) {
     return $table;
 };
 
+// 5. Separação de Dados
 $prod_problems = [];
 $non_prod_problems = [];
 
@@ -142,7 +142,7 @@ if (is_array($data['problems'])) {
     }
 }
 
-// --- 5. Abas ---
+// 6. Abas
 $tabs = (new CTabView())
     ->addTab('tab_prod', 
         _('Production Environment') . ' (' . count($prod_problems) . ')', 
@@ -154,10 +154,10 @@ $tabs = (new CTabView())
     )
     ->setSelected(0);
 
-// --- 6. Renderizar ---
+// 7. Render
 (new CHtmlPage())
     ->setTitle($page_title)
-    ->addItem($style_tag) // Adiciona o CSS corrigido
+    ->addItem($style_tag)
     ->addItem($filter)
     ->addItem($stats_widget)
     ->addItem($tabs)

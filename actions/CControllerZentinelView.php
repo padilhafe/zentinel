@@ -14,9 +14,11 @@ class CControllerZentinelView extends CController {
     }
 
     protected function checkInput(): bool {
+        // CORREÇÃO: Usamos 'array' em vez de 'array_db' para evitar bloqueio
+        // se o navegador enviar parâmetros vazios (ex: filter_groupids[]=)
         $fields = [
-            'filter_groupids' => 'array_db hosts_groups.groupid',
-            'filter_prodids'  => 'array_db hosts_groups.groupid',
+            'filter_groupids' => 'array', 
+            'filter_prodids'  => 'array',
             'filter_ack'      => 'in -1,0,1',
             'filter_age'      => 'string',
             'filter_set'      => 'in 1',
@@ -30,7 +32,15 @@ class CControllerZentinelView extends CController {
     }
 
     protected function doAction(): void {
-        // --- 1. Filtros ---
+        // --- 0. Sanitização de Entrada (Limpeza) ---
+        // Remove strings vazias que podem vir da URL
+        $raw_groupids = $this->getInput('filter_groupids', []);
+        $raw_prodids  = $this->getInput('filter_prodids', []);
+        
+        $clean_groupids = array_filter($raw_groupids);
+        $clean_prodids  = array_filter($raw_prodids);
+
+        // --- 1. Filtros (Salvar/Resetar) ---
         if ($this->hasInput('filter_rst')) {
             CProfile::delete('web.zentinel.filter.groupids');
             CProfile::delete('web.zentinel.filter.prodids');
@@ -38,12 +48,14 @@ class CControllerZentinelView extends CController {
             CProfile::delete('web.zentinel.filter.age');
         }
         elseif ($this->hasInput('filter_set')) {
-            CProfile::updateArray('web.zentinel.filter.groupids', $this->getInput('filter_groupids', []), \PROFILE_TYPE_ID);
-            CProfile::updateArray('web.zentinel.filter.prodids', $this->getInput('filter_prodids', []), \PROFILE_TYPE_ID);
+            // Salvamos apenas os dados limpos
+            CProfile::updateArray('web.zentinel.filter.groupids', $clean_groupids, \PROFILE_TYPE_ID);
+            CProfile::updateArray('web.zentinel.filter.prodids', $clean_prodids, \PROFILE_TYPE_ID);
             CProfile::update('web.zentinel.filter.ack', $this->getInput('filter_ack', -1), \PROFILE_TYPE_INT);
             CProfile::update('web.zentinel.filter.age', $this->getInput('filter_age', ''), \PROFILE_TYPE_STR);
         }
 
+        // Recupera do perfil
         $filter_groupids = CProfile::getArray('web.zentinel.filter.groupids', []);
         $filter_prodids  = CProfile::getArray('web.zentinel.filter.prodids', []);
         $filter_ack      = (int)CProfile::get('web.zentinel.filter.ack', -1);
@@ -57,7 +69,8 @@ class CControllerZentinelView extends CController {
             'recent' => true
         ];
 
-        if ($filter_groupids) {
+        // Só aplica o filtro se o array não estiver vazio
+        if (!empty($filter_groupids)) {
             $options['groupids'] = $filter_groupids;
         }
         if ($filter_ack !== -1) {
@@ -71,12 +84,11 @@ class CControllerZentinelView extends CController {
         $problems = API::Problem()->get($options);
         if ($problems === false) $problems = [];
 
-        // --- 3. Enriquecimento de Dados (Estratégia Inversa) ---
+        // --- 3. Enriquecimento de Dados (Estratégia Inversa - API Compatível) ---
         if ($problems) {
             $triggerIds = array_column($problems, 'objectid');
             
-            // A. Busca Triggers para descobrir os Hosts
-            // (Sem pedir grupos aqui)
+            // A. Busca Triggers para descobrir Hosts
             $triggers = API::Trigger()->get([
                 'output' => ['triggerid'],
                 'selectHosts' => ['hostid', 'name'],
@@ -84,7 +96,7 @@ class CControllerZentinelView extends CController {
                 'preservekeys' => true
             ]);
 
-            // B. Coleta IDs de todos os hosts envolvidos
+            // B. Coleta IDs de Hosts
             $hostIds = [];
             foreach ($triggers as $t) {
                 if (!empty($t['hosts'])) {
@@ -94,18 +106,15 @@ class CControllerZentinelView extends CController {
                 }
             }
 
-            // C. Busca GRUPOS que contêm esses Hosts
-            // Usamos API::HostGroup em vez de Host. Isso evita o erro deprecated.
-            // Pedimos 'selectHosts' para saber qual host está em qual grupo.
+            // C. Busca Grupos dos Hosts (Usando API HostGroup para evitar erro deprecated)
             $hostGroupsMap = [];
             if (!empty($hostIds)) {
                 $groups = API::HostGroup()->get([
-                    'output' => ['groupid', 'name'],
+                    'output' => ['groupid'],
                     'selectHosts' => ['hostid'],
                     'hostids' => $hostIds
                 ]);
 
-                // Inverte o mapa: Group -> Host vira Host -> [Groups]
                 foreach ($groups as $group) {
                     if (!empty($group['hosts'])) {
                         foreach ($group['hosts'] as $h) {
@@ -115,7 +124,7 @@ class CControllerZentinelView extends CController {
                 }
             }
 
-            // D. Cruza tudo
+            // D. Mapeamento Final
             foreach ($problems as &$problem) {
                 $tid = $problem['objectid'];
                 $problem['host_name'] = 'N/A';
@@ -128,7 +137,6 @@ class CControllerZentinelView extends CController {
 
                     // Lógica de Produção
                     if (!empty($filter_prodids) && isset($hostGroupsMap[$hid])) {
-                        // Verifica se existe interseção entre os grupos do host e o filtro de produção
                         if (array_intersect($hostGroupsMap[$hid], $filter_prodids)) {
                             $problem['is_production'] = true;
                         }
@@ -155,14 +163,13 @@ class CControllerZentinelView extends CController {
             $stats['avg_duration'] = \zbx_date2age(0, (int)($total_duration / $stats['total']));
         }
 
-        // --- 5. Dados para Filtros ---
-        // Aqui usamos API::HostGroup pura, sem relacionamentos, só para listar no combo box
+        // --- 5. Dados para popular os Selects do Filtro ---
         $data_groups = [];
-        if ($filter_groupids) {
+        if (!empty($filter_groupids)) {
             $data_groups = API::HostGroup()->get(['output' => ['groupid', 'name'], 'groupids' => $filter_groupids]);
         }
         $data_prod_groups = [];
-        if ($filter_prodids) {
+        if (!empty($filter_prodids)) {
             $data_prod_groups = API::HostGroup()->get(['output' => ['groupid', 'name'], 'groupids' => $filter_prodids]);
         }
 
