@@ -65,8 +65,8 @@ class CControllerZentinelView extends CController {
         $options = [
             'output' => ['eventid', 'objectid', 'name', 'clock', 'severity', 'acknowledged'],
             'sortfield' => ['eventid'], 
-            'filter' => ['value' => 1],
-            'sortorder' => \ZBX_SORT_DOWN
+            'sortorder' => \ZBX_SORT_DOWN,
+            'recent' => false
         ];
 
         // Só aplica o filtro se o array não estiver vazio
@@ -91,7 +91,7 @@ class CControllerZentinelView extends CController {
             // A. Busca Triggers para descobrir Hosts
             $triggers = API::Trigger()->get([
                 'output' => ['triggerid'],
-                'selectHosts' => ['hostid', 'name'],
+                'selectHosts' => ['hostid', 'name', 'status'],
                 'triggerids' => $triggerIds,
                 'preservekeys' => true
             ]);
@@ -124,14 +124,20 @@ class CControllerZentinelView extends CController {
                 }
             }
 
-            // D. Mapeamento Final
-            foreach ($problems as &$problem) {
+            // D. Mapeamento Final e Filtro de Host Ativo
+            foreach ($problems as $key => &$problem) { 
                 $tid = $problem['objectid'];
                 $problem['host_name'] = 'N/A';
                 $problem['is_production'] = false;
 
                 if (isset($triggers[$tid]) && !empty($triggers[$tid]['hosts'])) {
                     $hostData = $triggers[$tid]['hosts'][0];
+                    
+                    if ((int)$hostData['status'] !== \HOST_STATUS_MONITORED) {
+                        unset($problems[$key]); // Remove o problema da lista
+                        continue;
+                    }
+
                     $problem['host_name'] = $hostData['name'];
                     $hid = $hostData['hostid'];
 
