@@ -30,7 +30,7 @@ class CControllerZentinelView extends CController {
     }
 
     protected function doAction(): void {
-        // --- 1. Gestão de Filtros ---
+        // --- 1. Filtros ---
         if ($this->hasInput('filter_rst')) {
             CProfile::delete('web.zentinel.filter.groupids');
             CProfile::delete('web.zentinel.filter.prodids');
@@ -71,11 +71,12 @@ class CControllerZentinelView extends CController {
         $problems = API::Problem()->get($options);
         if ($problems === false) $problems = [];
 
-        // --- 3. Enriquecimento de Dados (Correção do selectGroups) ---
+        // --- 3. Enriquecimento de Dados (Estratégia Atômica) ---
         if ($problems) {
             $triggerIds = array_column($problems, 'objectid');
             
-            // Passo A: Busca Triggers e Hosts (SEM selectGroups aqui!)
+            // PASSO A: Busca Triggers (Pegando apenas Hosts)
+            // Não pedimos grupos aqui. Não filtramos host por triggerid aqui.
             $triggers = API::Trigger()->get([
                 'output' => ['triggerid'],
                 'selectHosts' => ['hostid', 'name'],
@@ -83,7 +84,7 @@ class CControllerZentinelView extends CController {
                 'preservekeys' => true
             ]);
 
-            // Passo B: Coleta IDs dos Hosts encontrados
+            // Coletar todos os Host IDs retornados pelas triggers
             $hostIds = [];
             foreach ($triggers as $t) {
                 if (!empty($t['hosts'])) {
@@ -93,34 +94,35 @@ class CControllerZentinelView extends CController {
                 }
             }
 
-            // Passo C: Busca Grupos dos Hosts separadamente (Aqui é permitido)
+            // PASSO B: Busca os Grupos desses Hosts
+            // Chamada limpa de Host->get. Impossível dar erro de deprecated.
             $hostGroupsMap = [];
             if (!empty($hostIds)) {
                 $hosts = API::Host()->get([
                     'output' => ['hostid'],
-                    'selectGroups' => ['groupid'], // Válido em host.get
+                    'selectGroups' => ['groupid'],
                     'hostids' => $hostIds,
                     'preservekeys' => true
                 ]);
-                
-                // Mapeia HostID -> Array de GroupIDs
+
                 foreach ($hosts as $hid => $hdata) {
                     $hostGroupsMap[$hid] = array_column($hdata['groups'], 'groupid');
                 }
             }
 
-            // Passo D: Cruza as informações
+            // PASSO C: Cruzamento Final (Problem -> Trigger -> Host -> Groups)
             foreach ($problems as &$problem) {
                 $tid = $problem['objectid'];
                 $problem['host_name'] = 'N/A';
                 $problem['is_production'] = false;
 
+                // 1. Acha a trigger do problema
                 if (isset($triggers[$tid]) && !empty($triggers[$tid]['hosts'])) {
                     $hostData = $triggers[$tid]['hosts'][0];
                     $problem['host_name'] = $hostData['name'];
                     $hid = $hostData['hostid'];
 
-                    // Verifica se o host pertence a algum grupo de produção selecionado
+                    // 2. Acha os grupos do host dessa trigger
                     if (!empty($filter_prodids) && isset($hostGroupsMap[$hid])) {
                         if (array_intersect($hostGroupsMap[$hid], $filter_prodids)) {
                             $problem['is_production'] = true;
@@ -148,7 +150,7 @@ class CControllerZentinelView extends CController {
             $stats['avg_duration'] = \zbx_date2age(0, (int)($total_duration / $stats['total']));
         }
 
-        // --- 5. Dados para o Filtro ---
+        // --- 5. Dados para Filtros ---
         $data_groups = [];
         if ($filter_groupids) {
             $data_groups = API::HostGroup()->get(['output' => ['groupid', 'name'], 'groupids' => $filter_groupids]);
