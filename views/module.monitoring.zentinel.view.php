@@ -15,20 +15,6 @@ $filter = (new CFilter())
     ->addVar('action', 'zentinel.view'); // <--- ISSO É CRÍTICO
 
 $filter_form = (new CFormList())
-    ->addRow(_('Show Host Groups'), (new CMultiSelect([
-        'name' => 'filter_groupids[]',
-        'object_name' => 'hostGroup',
-        'data' => $data['filter_groupids'],
-        'popup' => [
-            'parameters' => [
-                'srctbl' => 'host_groups',
-                'srcfld1' => 'groupid',
-                'dstfrm' => 'zbx_filter',
-                'dstfld1' => 'filter_groupids_',
-                'real_hosts' => 1
-            ]
-        ]
-    ]))->setWidth(ZBX_TEXTAREA_FILTER_STANDARD_WIDTH))
     ->addRow(_('Define as Production'), (new CMultiSelect([
         'name' => 'filter_prodids[]',
         'object_name' => 'hostGroup',
@@ -48,12 +34,20 @@ $filter_form = (new CFormList())
         ->addValue(_('Yes'), 1)
         ->addValue(_('No'), 0)
         ->setModern(true)
-    )
-    ->addRow(_('Older than'), (new CTextBox('filter_age', $data['filter_age']))->setWidth(ZBX_TEXTAREA_FILTER_SMALL_WIDTH));
+    )->addRow(_('Severity'),
+        (new CCheckBoxList('filter_severities'))
+            ->setOptions(
+                // Pega nomes e valores (0 a 5) do sistema
+                array_column(\CSeverityHelper::getSeverities(), 'label', 'value')
+            )
+            ->setChecked($data['filter_severities']) // Marca os que foram salvos
+            ->setColumns(3) // Organiza em 3 colunas para ficar bonito
+            ->setVertical(true)
+    )->addRow(_('Older than'), (new CTextBox('filter_age', $data['filter_age']))->setWidth(ZBX_TEXTAREA_FILTER_SMALL_WIDTH));
+
 
 $filter->addFilterTab(_('Configuração de Visualização'), [$filter_form]);
 
-// 2. CSS Seguro (Compatível Zabbix 6 e 7)
 $css_content = '
     .zentinel-stats { display: flex; gap: 10px; margin-bottom: 10px; }
     .zentinel-card { 
@@ -128,7 +122,6 @@ $createTable = function($problems) {
     return $table;
 };
 
-// 5. Separação de Dados
 $prod_problems = [];
 $non_prod_problems = [];
 
