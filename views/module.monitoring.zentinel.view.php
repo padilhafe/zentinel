@@ -1,202 +1,183 @@
 <?php declare(strict_types = 1);
 
-namespace Modules\Zentinel\Actions;
+/**
+ * @var CView $this
+ * @var array $data
+ */
 
-use CController;
-use CControllerResponseData;
-use CProfile;
-use API;
+$page_title = _('Zentinel: Command Center'); 
 
-class CControllerZentinelView extends CController {
+// 1. Configuração do Filtro
+$filter = (new CFilter())
+    ->setResetUrl((new CUrl('zabbix.php'))->setArgument('action', 'zentinel.view')->setArgument('filter_rst', 1)) 
+    ->setProfile('web.zentinel.filter') 
+    ->setActiveTab(CProfile::get('web.zentinel.filter.active', 1))
+    ->addVar('action', 'zentinel.view'); // Essencial para o botão funcionar
 
-    protected function init(): void {
-        $this->disableCsrfValidation();
+// 2. Montagem do Formulário
+$filter_form = (new CFormList())
+    // Filtro 1: Grupos de Host (Restaurado)
+    ->addRow(_('Show Host Groups'), (new CMultiSelect([
+        'name' => 'filter_groupids[]',
+        'object_name' => 'hostGroup',
+        'data' => $data['filter_groupids'],
+        'popup' => [
+            'parameters' => [
+                'srctbl' => 'host_groups',
+                'srcfld1' => 'groupid',
+                'dstfrm' => 'zbx_filter',
+                'dstfld1' => 'filter_groupids_',
+                'real_hosts' => 1
+            ]
+        ]
+    ]))->setWidth(ZBX_TEXTAREA_FILTER_STANDARD_WIDTH))
+
+    // Filtro 2: Definição de Produção
+    ->addRow(_('Define as Production'), (new CMultiSelect([
+        'name' => 'filter_prodids[]',
+        'object_name' => 'hostGroup',
+        'data' => $data['filter_prodids'],
+        'popup' => [
+            'parameters' => [
+                'srctbl' => 'host_groups',
+                'srcfld1' => 'groupid',
+                'dstfrm' => 'zbx_filter',
+                'dstfld1' => 'filter_prodids_',
+                'real_hosts' => 1
+            ]
+        ]
+    ]))->setWidth(ZBX_TEXTAREA_FILTER_STANDARD_WIDTH))
+
+    // Filtro 3: Severidade (Checkboxes)
+    ->addRow(_('Severity'),
+        (new CCheckBoxList('filter_severities'))
+            ->setOptions(
+                array_column(\CSeverityHelper::getSeverities(), 'label', 'value')
+            )
+            ->setChecked($data['filter_severities'])
+            ->setColumns(3)
+            ->setVertical(true)
+    )
+
+    // Filtro 4: Status do Ack
+    ->addRow(_('Acknowledge status'), (new CRadioButtonList('filter_ack', (int)$data['filter_ack']))
+        ->addValue(_('Any'), -1)
+        ->addValue(_('Yes'), 1)
+        ->addValue(_('No'), 0)
+        ->setModern(true)
+    )
+
+    // Filtro 5: Idade
+    ->addRow(_('Older than'), (new CTextBox('filter_age', $data['filter_age']))->setWidth(ZBX_TEXTAREA_FILTER_SMALL_WIDTH));
+
+$filter->addFilterTab(_('Configuração de Visualização'), [$filter_form]);
+
+// 3. CSS Injetado
+$css_content = '
+    .zentinel-stats { display: flex; gap: 10px; margin-bottom: 10px; }
+    .zentinel-card { 
+        flex: 1; 
+        background: #fff; 
+        border: 1px solid #dbe1e5; 
+        padding: 15px; 
+        border-radius: 3px; 
+        text-align: center;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
     }
+    .dark-theme .zentinel-card { background: #2b2b2b; border-color: #383838; color: #f2f2f2; }
+    .zentinel-value { font-size: 24px; font-weight: bold; display: block; margin-bottom: 5px; }
+    .zentinel-label { font-size: 12px; text-transform: uppercase; color: #768d99; }
+    .c-red { color: #e45959; }
+    .c-green { color: #59db8f; }
+    .c-orange { color: #f24f1d; }
+';
+$style_tag = new CTag('style', true, $css_content);
 
-    protected function checkInput(): bool {
-        $fields = [
-            'filter_groupids'   => 'array', 
-            'filter_prodids'    => 'array',
-            'filter_ack'        => 'in -1,0,1',
-            'filter_age'        => 'string',
-            'filter_set'        => 'in 1',
-            'filter_rst'        => 'in 1',
-            'filter_severities' => 'array',
-        ];
-        return $this->validateInput($fields);
-    }
-
-    protected function checkPermissions(): bool {
-        return $this->getUserType() >= \USER_TYPE_ZABBIX_USER;
-    }
-
-    protected function doAction(): void {
-        // --- 0. Sanitização ---
-        $raw_severities = $this->getInput('filter_severities', []);
-        $clean_severities = array_filter($raw_severities, 'is_numeric');
+// 4. Widgets de KPI
+$stats_widget = (new CDiv())
+    ->addClass('zentinel-stats')
+    ->addItem([
+        (new CDiv([
+            (new CSpan($data['stats']['total']))->addClass('zentinel-value'),
+            (new CSpan(_('Total Problems')))->addClass('zentinel-label')
+        ]))->addClass('zentinel-card'),
         
-        $raw_groupids = $this->getInput('filter_groupids', []);
-        $raw_prodids  = $this->getInput('filter_prodids', []);
-        
-        $clean_groupids = array_filter($raw_groupids);
-        $clean_prodids  = array_filter($raw_prodids);
+        (new CDiv([
+            (new CSpan($data['stats']['critical_count']))->addClass('zentinel-value c-red'),
+            (new CSpan(_('High/Disaster')))->addClass('zentinel-label')
+        ]))->addClass('zentinel-card'),
 
-        // --- 1. Filtros (Salvar/Resetar) ---
-        if ($this->hasInput('filter_rst')) {
-            CProfile::delete('web.zentinel.filter.groupids');
-            CProfile::delete('web.zentinel.filter.prodids');
-            CProfile::delete('web.zentinel.filter.ack');
-            CProfile::delete('web.zentinel.filter.age');
-            CProfile::delete('web.zentinel.filter.severities');
+        (new CDiv([
+            (new CSpan($data['stats']['ack_count']))->addClass('zentinel-value c-green'),
+            (new CSpan(_('Acknowledged')))->addClass('zentinel-label')
+        ]))->addClass('zentinel-card'),
+
+        (new CDiv([
+            (new CSpan($data['stats']['avg_duration']))->addClass('zentinel-value c-orange'),
+            (new CSpan(_('Avg Duration')))->addClass('zentinel-label')
+        ]))->addClass('zentinel-card'),
+    ]);
+
+// 5. Helper de Tabela
+$createTable = function($problems) {
+    $table = (new CTableInfo())
+        ->setHeader([_('Time'), _('Severity'), _('Host'), _('Problem'), _('Duration'), _('Ack')]);
+    
+    if (empty($problems)) {
+        return $table->setNoDataMessage(_('No problems found in this context.'));
+    }
+
+    foreach ($problems as $problem) {
+        $severity_cell = new CCol(\CSeverityHelper::getName((int)$problem['severity']));
+        $severity_cell->addClass(\CSeverityHelper::getStyle((int)$problem['severity']));
+
+        $ack_status = ($problem['acknowledged'] == 1) 
+            ? (new CSpan(_('Yes')))->addClass(ZBX_STYLE_GREEN) 
+            : (new CSpan(_('No')))->addClass(ZBX_STYLE_RED);
+
+        $table->addRow([
+            zbx_date2str(DATE_TIME_FORMAT_SECONDS, $problem['clock']),
+            $severity_cell,
+            $problem['host_name'] ?? 'N/A',
+            $problem['name'],
+            zbx_date2age($problem['clock']),
+            $ack_status
+        ]);
+    }
+    return $table;
+};
+
+// 6. Separação de Dados
+$prod_problems = [];
+$non_prod_problems = [];
+
+if (is_array($data['problems'])) {
+    foreach ($data['problems'] as $p) {
+        if ($p['is_production']) {
+            $prod_problems[] = $p;
+        } else {
+            $non_prod_problems[] = $p;
         }
-        elseif ($this->hasInput('filter_set')) {
-            CProfile::updateArray('web.zentinel.filter.groupids', $clean_groupids, \PROFILE_TYPE_ID);
-            CProfile::updateArray('web.zentinel.filter.prodids', $clean_prodids, \PROFILE_TYPE_ID);
-            CProfile::updateArray('web.zentinel.filter.severities', $clean_severities, \PROFILE_TYPE_INT); 
-            CProfile::update('web.zentinel.filter.ack', $this->getInput('filter_ack', -1), \PROFILE_TYPE_INT);
-            CProfile::update('web.zentinel.filter.age', $this->getInput('filter_age', ''), \PROFILE_TYPE_STR);
-        }
-
-        // Recupera do perfil
-        $filter_groupids   = CProfile::getArray('web.zentinel.filter.groupids', []);
-        $filter_prodids    = CProfile::getArray('web.zentinel.filter.prodids', []);
-        $filter_severities = CProfile::getArray('web.zentinel.filter.severities', []); 
-        $filter_ack        = (int)CProfile::get('web.zentinel.filter.ack', -1);
-        $filter_age        = CProfile::get('web.zentinel.filter.age', '');
-
-        // --- 2. Busca de Problemas ---
-        $options = [
-            'output' => ['eventid', 'objectid', 'name', 'clock', 'severity', 'acknowledged'],
-            'sortfield' => ['eventid'], 
-            'sortorder' => \ZBX_SORT_DOWN,
-            'recent' => false // Apenas ativos
-        ];
-
-        if (!empty($filter_groupids)) {
-            $options['groupids'] = $filter_groupids;
-        }
-        if ($filter_ack !== -1) {
-            $options['acknowledged'] = ($filter_ack == 1);
-        }
-        if ($filter_age !== '') {
-            $seconds = \timeUnitToSeconds($filter_age);
-            if ($seconds > 0) $options['time_till'] = \time() - $seconds;
-        }
-        if (!empty($filter_severities)) {
-            $options['severities'] = $filter_severities;
-        }
-
-        $problems = API::Problem()->get($options);
-        if ($problems === false) $problems = [];
-
-        // --- 3. Enriquecimento de Dados ---
-        if ($problems) {
-            $triggerIds = array_column($problems, 'objectid');
-            
-            // A. Busca Triggers (para pegar Hosts e Status)
-            $triggers = API::Trigger()->get([
-                'output' => ['triggerid'],
-                'selectHosts' => ['hostid', 'name', 'status'],
-                'triggerids' => $triggerIds,
-                'preservekeys' => true
-            ]);
-
-            // B. Coleta IDs de Hosts
-            $hostIds = [];
-            foreach ($triggers as $t) {
-                if (!empty($t['hosts'])) {
-                    foreach ($t['hosts'] as $h) {
-                        $hostIds[$h['hostid']] = $h['hostid'];
-                    }
-                }
-            }
-
-            // C. Busca Grupos (Inverso)
-            $hostGroupsMap = [];
-            if (!empty($hostIds)) {
-                $groups = API::HostGroup()->get([
-                    'output' => ['groupid'],
-                    'selectHosts' => ['hostid'],
-                    'hostids' => $hostIds
-                ]);
-
-                foreach ($groups as $group) {
-                    if (!empty($group['hosts'])) {
-                        foreach ($group['hosts'] as $h) {
-                            $hostGroupsMap[$h['hostid']][] = $group['groupid'];
-                        }
-                    }
-                }
-            }
-
-            // D. Mapeamento e Filtro de Host Ativo
-            foreach ($problems as $key => &$problem) { 
-                $tid = $problem['objectid'];
-                $problem['host_name'] = 'N/A';
-                $problem['is_production'] = false;
-
-                if (isset($triggers[$tid]) && !empty($triggers[$tid]['hosts'])) {
-                    $hostData = $triggers[$tid]['hosts'][0];
-                    
-                    // Verifica se Host está monitorado (STATUS 0 = Monitorado)
-                    if ((int)$hostData['status'] !== \HOST_STATUS_MONITORED) {
-                        unset($problems[$key]);
-                        continue;
-                    }
-
-                    $problem['host_name'] = $hostData['name'];
-                    $hid = $hostData['hostid'];
-
-                    // Lógica de Produção
-                    if (!empty($filter_prodids) && isset($hostGroupsMap[$hid])) {
-                        if (array_intersect($hostGroupsMap[$hid], $filter_prodids)) {
-                            $problem['is_production'] = true;
-                        }
-                    }
-                }
-            }
-            unset($problem);
-        }
-
-        // --- 4. Estatísticas ---
-        $stats = [
-            'total' => count($problems),
-            'ack_count' => 0,
-            'critical_count' => 0,
-            'avg_duration' => 0
-        ];
-        $total_duration = 0;
-        foreach ($problems as $p) {
-            if ($p['acknowledged'] == 1) $stats['ack_count']++;
-            if ($p['severity'] >= \TRIGGER_SEVERITY_HIGH) $stats['critical_count']++;
-            $total_duration += (\time() - (int)$p['clock']);
-        }
-        if ($stats['total'] > 0) {
-            $stats['avg_duration'] = \zbx_date2age(0, (int)($total_duration / $stats['total']));
-        }
-
-        // --- 5. Dados para View ---
-        $data_groups = [];
-        if (!empty($filter_groupids)) {
-            $data_groups = API::HostGroup()->get(['output' => ['groupid', 'name'], 'groupids' => $filter_groupids]);
-        }
-        $data_prod_groups = [];
-        if (!empty($filter_prodids)) {
-            $data_prod_groups = API::HostGroup()->get(['output' => ['groupid', 'name'], 'groupids' => $filter_prodids]);
-        }
-
-        $data = [
-            'problems'          => $problems,
-            'stats'             => $stats,
-            'filter_groupids'   => $data_groups,
-            'filter_prodids'    => $data_prod_groups,
-            'filter_ack'        => $filter_ack,
-            'filter_age'        => $filter_age,
-            'filter_severities' => $filter_severities,
-        ];
-
-        $response = new CControllerResponseData($data);
-        $response->setTitle(_('Zentinel: Command Center'));
-        $this->setResponse($response);
     }
 }
+
+// 7. Abas
+$tabs = (new CTabView())
+    ->addTab('tab_prod', 
+        _('Production Environment') . ' (' . count($prod_problems) . ')', 
+        $createTable($prod_problems)
+    )
+    ->addTab('tab_nonprod', 
+        _('Non-Production / Others') . ' (' . count($non_prod_problems) . ')', 
+        $createTable($non_prod_problems)
+    )
+    ->setSelected(0);
+
+// 8. Renderização Final
+(new CHtmlPage())
+    ->setTitle($page_title)
+    ->addItem($style_tag)
+    ->addItem($filter)
+    ->addItem($stats_widget)
+    ->addItem($tabs)
+    ->show();
