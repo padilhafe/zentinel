@@ -15,8 +15,7 @@ class CControllerZentinelView extends CController {
 
     protected function checkInput(): bool {
         $fields = [
-            'filter_groupids'   => 'array', 
-            'filter_prodids'    => 'array',
+            'filter_nonprodids' => 'array', // Renomeado: Define o que NÃO é prod
             'filter_ack'        => 'in -1,0,1',
             'filter_age'        => 'string',
             'filter_set'        => 'in 1',
@@ -35,31 +34,28 @@ class CControllerZentinelView extends CController {
         $raw_severities = $this->getInput('filter_severities', []);
         $clean_severities = array_filter($raw_severities, 'is_numeric');
         
-        $raw_groupids = $this->getInput('filter_groupids', []);
-        $raw_prodids  = $this->getInput('filter_prodids', []);
-        
-        $clean_groupids = array_filter($raw_groupids);
-        $clean_prodids  = array_filter($raw_prodids);
+        $raw_nonprodids = $this->getInput('filter_nonprodids', []);
+        $clean_nonprodids = array_filter($raw_nonprodids);
 
         // --- 1. Filtros (Salvar/Resetar) ---
         if ($this->hasInput('filter_rst')) {
-            CProfile::delete('web.zentinel.filter.groupids');
-            CProfile::delete('web.zentinel.filter.prodids');
+            CProfile::delete('web.zentinel.filter.nonprodids'); // Alterado
             CProfile::delete('web.zentinel.filter.ack');
             CProfile::delete('web.zentinel.filter.age');
             CProfile::delete('web.zentinel.filter.severities');
+            // Limpa lixo antigo se existir
+            CProfile::delete('web.zentinel.filter.groupids');
+            CProfile::delete('web.zentinel.filter.prodids');
         }
         elseif ($this->hasInput('filter_set')) {
-            CProfile::updateArray('web.zentinel.filter.groupids', $clean_groupids, \PROFILE_TYPE_ID);
-            CProfile::updateArray('web.zentinel.filter.prodids', $clean_prodids, \PROFILE_TYPE_ID);
+            CProfile::updateArray('web.zentinel.filter.nonprodids', $clean_nonprodids, \PROFILE_TYPE_ID);
             CProfile::updateArray('web.zentinel.filter.severities', $clean_severities, \PROFILE_TYPE_INT); 
             CProfile::update('web.zentinel.filter.ack', $this->getInput('filter_ack', -1), \PROFILE_TYPE_INT);
             CProfile::update('web.zentinel.filter.age', $this->getInput('filter_age', ''), \PROFILE_TYPE_STR);
         }
 
         // Recupera do perfil
-        $filter_groupids   = CProfile::getArray('web.zentinel.filter.groupids', []);
-        $filter_prodids    = CProfile::getArray('web.zentinel.filter.prodids', []);
+        $filter_nonprodids = CProfile::getArray('web.zentinel.filter.nonprodids', []);
         $filter_severities = CProfile::getArray('web.zentinel.filter.severities', []); 
         $filter_ack        = (int)CProfile::get('web.zentinel.filter.ack', -1);
         $filter_age        = CProfile::get('web.zentinel.filter.age', '');
@@ -72,9 +68,7 @@ class CControllerZentinelView extends CController {
             'recent' => false // Apenas ativos
         ];
 
-        if (!empty($filter_groupids)) {
-            $options['groupids'] = $filter_groupids;
-        }
+        // Filtros globais
         if ($filter_ack !== -1) {
             $options['acknowledged'] = ($filter_ack == 1);
         }
@@ -93,7 +87,7 @@ class CControllerZentinelView extends CController {
         if ($problems) {
             $triggerIds = array_column($problems, 'objectid');
             
-            // A. Busca Triggers (para pegar Hosts e Status)
+            // A. Busca Triggers (Hosts + Status)
             $triggers = API::Trigger()->get([
                 'output' => ['triggerid'],
                 'selectHosts' => ['hostid', 'name', 'status'],
@@ -111,7 +105,7 @@ class CControllerZentinelView extends CController {
                 }
             }
 
-            // C. Busca Grupos (Inverso)
+            // C. Busca Grupos
             $hostGroupsMap = [];
             if (!empty($hostIds)) {
                 $groups = API::HostGroup()->get([
@@ -119,7 +113,6 @@ class CControllerZentinelView extends CController {
                     'selectHosts' => ['hostid'],
                     'hostids' => $hostIds
                 ]);
-
                 foreach ($groups as $group) {
                     if (!empty($group['hosts'])) {
                         foreach ($group['hosts'] as $h) {
@@ -129,16 +122,18 @@ class CControllerZentinelView extends CController {
                 }
             }
 
-            // D. Mapeamento e Filtro de Host Ativo
+            // D. Mapeamento e Lógica Invertida (Prod por Padrão)
             foreach ($problems as $key => &$problem) { 
                 $tid = $problem['objectid'];
                 $problem['host_name'] = 'N/A';
-                $problem['is_production'] = false;
+                
+                // Padrão: Tudo é Produção, a menos que digamos o contrário
+                $problem['is_production'] = true; 
 
                 if (isset($triggers[$tid]) && !empty($triggers[$tid]['hosts'])) {
                     $hostData = $triggers[$tid]['hosts'][0];
                     
-                    // Verifica se Host está monitorado (STATUS 0 = Monitorado)
+                    // Remove hosts desativados
                     if ((int)$hostData['status'] !== \HOST_STATUS_MONITORED) {
                         unset($problems[$key]);
                         continue;
@@ -147,10 +142,10 @@ class CControllerZentinelView extends CController {
                     $problem['host_name'] = $hostData['name'];
                     $hid = $hostData['hostid'];
 
-                    // Lógica de Produção
-                    if (!empty($filter_prodids) && isset($hostGroupsMap[$hid])) {
-                        if (array_intersect($hostGroupsMap[$hid], $filter_prodids)) {
-                            $problem['is_production'] = true;
+                    // Lógica: Se o host estiver em um grupo "Non-Prod", setamos false
+                    if (!empty($filter_nonprodids) && isset($hostGroupsMap[$hid])) {
+                        if (array_intersect($hostGroupsMap[$hid], $filter_nonprodids)) {
+                            $problem['is_production'] = false; // É Non-Prod/Homolog
                         }
                     }
                 }
@@ -176,20 +171,15 @@ class CControllerZentinelView extends CController {
         }
 
         // --- 5. Dados para View ---
-        $data_groups = [];
-        if (!empty($filter_groupids)) {
-            $data_groups = API::HostGroup()->get(['output' => ['groupid', 'name'], 'groupids' => $filter_groupids]);
-        }
-        $data_prod_groups = [];
-        if (!empty($filter_prodids)) {
-            $data_prod_groups = API::HostGroup()->get(['output' => ['groupid', 'name'], 'groupids' => $filter_prodids]);
+        $data_nonprod_groups = [];
+        if (!empty($filter_nonprodids)) {
+            $data_nonprod_groups = API::HostGroup()->get(['output' => ['groupid', 'name'], 'groupids' => $filter_nonprodids]);
         }
 
         $data = [
             'problems'          => $problems,
             'stats'             => $stats,
-            'filter_groupids'   => $data_groups,
-            'filter_prodids'    => $data_prod_groups,
+            'filter_nonprodids' => $data_nonprod_groups, // Dados para o Multiselect
             'filter_ack'        => $filter_ack,
             'filter_age'        => $filter_age,
             'filter_severities' => $filter_severities,

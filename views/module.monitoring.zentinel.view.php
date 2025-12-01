@@ -7,60 +7,51 @@
 
 $page_title = _('Zentinel: Command Center'); 
 
-// 1. Configuração do Filtro
+// 1. Configuração
 $filter = (new CFilter())
     ->setResetUrl((new CUrl('zabbix.php'))->setArgument('action', 'zentinel.view')->setArgument('filter_rst', 1)) 
     ->setProfile('web.zentinel.filter') 
     ->setActiveTab(CProfile::get('web.zentinel.filter.active', 1))
     ->addVar('action', 'zentinel.view');
 
-// 2. Montagem do Formulário
+// 2. Array Manual de Severidades (Infalível)
+$severities = [
+    TRIGGER_SEVERITY_NOT_CLASSIFIED => _('Not classified'),
+    TRIGGER_SEVERITY_INFORMATION    => _('Information'),
+    TRIGGER_SEVERITY_WARNING        => _('Warning'),
+    TRIGGER_SEVERITY_AVERAGE        => _('Average'),
+    TRIGGER_SEVERITY_HIGH           => _('High'),
+    TRIGGER_SEVERITY_DISASTER       => _('Disaster'),
+];
+
+// 3. Formulário
 $filter_form = (new CFormList())
-    // Filtro 1: Grupos de Host
-    ->addRow(_('Show Host Groups'), (new CMultiSelect([
-        'name' => 'filter_groupids[]',
+    // Filtro 1: Definir o que NÃO é produção (Lógica Invertida)
+    ->addRow(_('Define as Non-Production'), (new CMultiSelect([
+        'name' => 'filter_nonprodids[]',
         'object_name' => 'hostGroup',
-        'data' => $data['filter_groupids'],
+        'data' => $data['filter_nonprodids'],
         'popup' => [
             'parameters' => [
                 'srctbl' => 'host_groups',
                 'srcfld1' => 'groupid',
                 'dstfrm' => 'zbx_filter',
-                'dstfld1' => 'filter_groupids_',
+                'dstfld1' => 'filter_nonprodids_',
                 'real_hosts' => 1
             ]
         ]
     ]))->setWidth(ZBX_TEXTAREA_FILTER_STANDARD_WIDTH))
 
-    // Filtro 2: Definição de Produção
-    ->addRow(_('Define as Production'), (new CMultiSelect([
-        'name' => 'filter_prodids[]',
-        'object_name' => 'hostGroup',
-        'data' => $data['filter_prodids'],
-        'popup' => [
-            'parameters' => [
-                'srctbl' => 'host_groups',
-                'srcfld1' => 'groupid',
-                'dstfrm' => 'zbx_filter',
-                'dstfld1' => 'filter_prodids_',
-                'real_hosts' => 1
-            ]
-        ]
-    ]))->setWidth(ZBX_TEXTAREA_FILTER_STANDARD_WIDTH))
-
-    // Filtro 3: Severidade (CORRIGIDO AQUI)
+    // Filtro 2: Severidade (Manual e Robusto)
     ->addRow(_('Severity'),
         (new CCheckBoxList('filter_severities'))
-            ->setOptions(
-                // CORREÇÃO: Usamos 'name' em vez de 'label'
-                array_column(\CSeverityHelper::getSeverities(), 'name', 'value')
-            )
+            ->setOptions($severities) // Array simples [Valor => Rótulo]
             ->setChecked($data['filter_severities'])
             ->setColumns(3)
             ->setVertical(true)
     )
 
-    // Filtro 4: Status do Ack
+    // Filtro 3: Ack
     ->addRow(_('Acknowledge status'), (new CRadioButtonList('filter_ack', (int)$data['filter_ack']))
         ->addValue(_('Any'), -1)
         ->addValue(_('Yes'), 1)
@@ -68,12 +59,12 @@ $filter_form = (new CFormList())
         ->setModern(true)
     )
 
-    // Filtro 5: Idade
+    // Filtro 4: Idade
     ->addRow(_('Older than'), (new CTextBox('filter_age', $data['filter_age']))->setWidth(ZBX_TEXTAREA_FILTER_SMALL_WIDTH));
 
 $filter->addFilterTab(_('Configuração de Visualização'), [$filter_form]);
 
-// 3. CSS Injetado
+// 4. CSS
 $css_content = '
     .zentinel-stats { display: flex; gap: 10px; margin-bottom: 10px; }
     .zentinel-card { 
@@ -94,7 +85,7 @@ $css_content = '
 ';
 $style_tag = new CTag('style', true, $css_content);
 
-// 4. Widgets de KPI
+// 5. Widgets
 $stats_widget = (new CDiv())
     ->addClass('zentinel-stats')
     ->addItem([
@@ -119,7 +110,7 @@ $stats_widget = (new CDiv())
         ]))->addClass('zentinel-card'),
     ]);
 
-// 5. Helper de Tabela
+// 6. Helper
 $createTable = function($problems) {
     $table = (new CTableInfo())
         ->setHeader([_('Time'), _('Severity'), _('Host'), _('Problem'), _('Duration'), _('Ack')]);
@@ -148,7 +139,7 @@ $createTable = function($problems) {
     return $table;
 };
 
-// 6. Separação de Dados
+// 7. Separação (Tudo é Prod, exceto o que marcamos como false no controller)
 $prod_problems = [];
 $non_prod_problems = [];
 
@@ -162,7 +153,7 @@ if (is_array($data['problems'])) {
     }
 }
 
-// 7. Abas
+// 8. Abas
 $tabs = (new CTabView())
     ->addTab('tab_prod', 
         _('Production Environment') . ' (' . count($prod_problems) . ')', 
@@ -174,7 +165,7 @@ $tabs = (new CTabView())
     )
     ->setSelected(0);
 
-// 8. Renderização Final
+// 9. Render
 (new CHtmlPage())
     ->setTitle($page_title)
     ->addItem($style_tag)
