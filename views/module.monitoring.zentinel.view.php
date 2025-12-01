@@ -10,7 +10,9 @@ $page_title = _('Zentinel: Painel de Problemas');
 $filter = (new CFilter())
     ->setResetUrl((new CUrl('zabbix.php'))->setArgument('action', 'zentinel.view')->setArgument('filter_rst', 1)) 
     ->setProfile('web.zentinel.filter') 
-    ->setActiveTab(CProfile::get('web.zentinel.filter.active', 1));
+    ->setActiveTab(CProfile::get('web.zentinel.filter.active', 1))
+    // CORREÇÃO: Isso garante que o action=zentinel.view seja enviado ao filtrar
+    ->addVar('action', 'zentinel.view');
 
 $filter_form = (new CFormList())
     ->addRow(_('Host Groups'), (new CMultiSelect([
@@ -82,4 +84,3 @@ if (is_array($data['problems'])) {
     ->addItem($filter)
     ->addItem($table)
     ->show();
-    
