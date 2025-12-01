@@ -65,8 +65,8 @@ class CControllerZentinelView extends CController {
         $options = [
             'output' => ['eventid', 'objectid', 'name', 'clock', 'severity', 'acknowledged'],
             'sortfield' => ['eventid'], 
-            'sortorder' => \ZBX_SORT_DOWN,
-            'recent' => true
+            'filter' => ['value' => 1],
+            'sortorder' => \ZBX_SORT_DOWN
         ];
 
         // Só aplica o filtro se o array não estiver vazio
