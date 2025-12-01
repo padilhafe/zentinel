@@ -7,13 +7,11 @@
 
 $page_title = _('Zentinel: Painel de Problemas'); 
 
-// 1. Criar o Filtro
 $filter = (new CFilter())
     ->setResetUrl((new CUrl('zabbix.php'))->setArgument('action', 'zentinel.view')->setArgument('filter_rst', 1)) 
     ->setProfile('web.zentinel.filter') 
     ->setActiveTab(CProfile::get('web.zentinel.filter.active', 1));
 
-// Formulário do Filtro
 $filter_form = (new CFormList())
     ->addRow(_('Host Groups'), (new CMultiSelect([
         'name' => 'filter_groupids[]',
@@ -29,14 +27,12 @@ $filter_form = (new CFormList())
             ]
         ]
     ]))->setWidth(ZBX_TEXTAREA_FILTER_STANDARD_WIDTH))
-    
     ->addRow(_('Acknowledge status'), (new CRadioButtonList('filter_ack', (int)$data['filter_ack']))
         ->addValue(_('Any'), -1)
         ->addValue(_('Yes'), 1)
         ->addValue(_('No'), 0)
         ->setModern(true)
     )
-
     ->addRow(_('Older than (ex: 7d, 2h)'), 
         (new CTextBox('filter_age', $data['filter_age']))
             ->setWidth(ZBX_TEXTAREA_FILTER_SMALL_WIDTH)
@@ -45,7 +41,6 @@ $filter_form = (new CFormList())
 
 $filter->addFilterTab(_('Filter'), [$filter_form]);
 
-// 2. Criar a Tabela
 $table = (new CTableInfo())
     ->setHeader([
         _('Time'),
@@ -56,31 +51,35 @@ $table = (new CTableInfo())
         _('Ack')
     ]);
 
-foreach ($data['problems'] as $problem) {
-    $duration = zbx_date2age($problem['clock']);
-    
-    $severity_cell = new CCol(getSeverityName($problem['severity']));
-    $severity_cell->addClass(getSeverityStyle($problem['severity']));
+if (is_array($data['problems'])) {
+    foreach ($data['problems'] as $problem) {
+        $duration = zbx_date2age($problem['clock']);
+        
+        $severity_cell = new CCol(\CSeverityHelper::getName((int)$problem['severity']));
+        $severity_cell->addClass(\CSeverityHelper::getStyle((int)$problem['severity']));
 
-    $ack_status = ($problem['acknowledged'] == 1) 
-        ? (new CSpan(_('Yes')))->addClass(ZBX_STYLE_GREEN) 
-        : (new CSpan(_('No')))->addClass(ZBX_STYLE_RED);
+        $ack_status = ($problem['acknowledged'] == 1) 
+            ? (new CSpan(_('Yes')))->addClass(ZBX_STYLE_GREEN) 
+            : (new CSpan(_('No')))->addClass(ZBX_STYLE_RED);
 
-    $host_name = $problem['hosts'][0]['name'] ?? 'N/A';
+        $host_name = $problem['host_name'] ?? 'N/A';
 
-    $table->addRow([
-        zbx_date2str(DATE_TIME_FORMAT_SECONDS, $problem['clock']),
-        $severity_cell,
-        $host_name,
-        $problem['name'],
-        $duration,
-        $ack_status
-    ]);
+        $table->addRow([
+            zbx_date2str(DATE_TIME_FORMAT_SECONDS, $problem['clock']),
+            $severity_cell,
+            $host_name,
+            $problem['name'],
+            $duration,
+            $ack_status
+        ]);
+    }
+} else {
+    $table->setNoDataMessage(_('No problems found or API error.'));
 }
 
-// 3. Exibir
 (new CHtmlPage())
     ->setTitle($page_title)
     ->addItem($filter)
     ->addItem($table)
     ->show();
+    
