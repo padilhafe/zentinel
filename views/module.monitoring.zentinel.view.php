@@ -14,7 +14,7 @@ $filter = (new CFilter())
     ->setActiveTab(CProfile::get('web.zentinel.filter.active', 1))
     ->addVar('action', 'zentinel.view');
 
-// 2. Array Manual de Severidades (Infalível)
+// 2. Array Manual de Severidades
 $severities = [
     TRIGGER_SEVERITY_NOT_CLASSIFIED => _('Not classified'),
     TRIGGER_SEVERITY_INFORMATION    => _('Information'),
@@ -24,9 +24,18 @@ $severities = [
     TRIGGER_SEVERITY_DISASTER       => _('Disaster'),
 ];
 
+// CORREÇÃO: Transformar no formato exigido pelo CCheckBoxList [['value' => X, 'label' => Y]]
+$severity_options = [];
+foreach ($severities as $severity => $label) {
+    $severity_options[] = [
+        'label' => $label,
+        'value' => $severity
+    ];
+}
+
 // 3. Formulário
 $filter_form = (new CFormList())
-    // Filtro 1: Definir o que NÃO é produção (Lógica Invertida)
+    // Filtro 1: Definir o que NÃO é produção
     ->addRow(_('Define as Non-Production'), (new CMultiSelect([
         'name' => 'filter_nonprodids[]',
         'object_name' => 'hostGroup',
@@ -42,10 +51,10 @@ $filter_form = (new CFormList())
         ]
     ]))->setWidth(ZBX_TEXTAREA_FILTER_STANDARD_WIDTH))
 
-    // Filtro 2: Severidade (Manual e Robusto)
+    // Filtro 2: Severidade (CORRIGIDO: Usando $severity_options)
     ->addRow(_('Severity'),
         (new CCheckBoxList('filter_severities'))
-            ->setOptions($severities) // Array simples [Valor => Rótulo]
+            ->setOptions($severity_options) // Agora está no formato correto
             ->setChecked($data['filter_severities'])
             ->setColumns(3)
             ->setVertical(true)
@@ -139,7 +148,7 @@ $createTable = function($problems) {
     return $table;
 };
 
-// 7. Separação (Tudo é Prod, exceto o que marcamos como false no controller)
+// 7. Separação
 $prod_problems = [];
 $non_prod_problems = [];
 
