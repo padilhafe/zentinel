@@ -7,7 +7,7 @@
 
 $page_title = _('Zentinel: Command Center'); 
 
-// --- 1. Filtro Otimizado ---
+// --- 1. Filtro ---
 $filter = (new CFilter())
     ->setResetUrl((new CUrl('zabbix.php'))->setArgument('action', 'zentinel.view')->setArgument('filter_rst', 1)) 
     ->setProfile('web.zentinel.filter') 
@@ -15,7 +15,6 @@ $filter = (new CFilter())
     ->addVar('action', 'zentinel.view');
 
 $filter_form = (new CFormList())
-    // Coluna 1: O que monitorar
     ->addRow(_('Show Host Groups'), (new CMultiSelect([
         'name' => 'filter_groupids[]',
         'object_name' => 'hostGroup',
@@ -30,8 +29,6 @@ $filter_form = (new CFormList())
             ]
         ]
     ]))->setWidth(ZBX_TEXTAREA_FILTER_STANDARD_WIDTH))
-    
-    // Coluna 2: Definição de Produção
     ->addRow(_('Define as Production'), (new CMultiSelect([
         'name' => 'filter_prodids[]',
         'object_name' => 'hostGroup',
@@ -46,8 +43,6 @@ $filter_form = (new CFormList())
             ]
         ]
     ]))->setWidth(ZBX_TEXTAREA_FILTER_STANDARD_WIDTH))
-
-    // Coluna 3: Filtros de Estado
     ->addRow(_('Acknowledge status'), (new CRadioButtonList('filter_ack', (int)$data['filter_ack']))
         ->addValue(_('Any'), -1)
         ->addValue(_('Yes'), 1)
@@ -58,9 +53,9 @@ $filter_form = (new CFormList())
 
 $filter->addFilterTab(_('Configuração de Visualização'), [$filter_form]);
 
-// --- 2. CSS Customizado para KPIs (In-line para simplicidade) ---
-// Em produção real, isso iria para um assets/css/style.css
-$css = '
+// --- 2. CSS Customizado (Correção do Erro Fatal) ---
+// Em vez de $this->includeCss, criamos uma tag style HTML simples
+$css_content = '
     .zentinel-stats { display: flex; gap: 10px; margin-bottom: 10px; }
     .zentinel-card { 
         flex: 1; 
@@ -78,9 +73,9 @@ $css = '
     .c-green { color: #59db8f; }
     .c-orange { color: #f24f1d; }
 ';
-$this->includeCss($css);
+$style_tag = new CTag('style', true, $css_content);
 
-// --- 3. Cards de Estatísticas (KPIs) ---
+// --- 3. Cards de Estatísticas ---
 $stats_widget = (new CDiv())
     ->addClass('zentinel-stats')
     ->addItem([
@@ -105,8 +100,7 @@ $stats_widget = (new CDiv())
         ]))->addClass('zentinel-card'),
     ]);
 
-
-// --- 4. Função Auxiliar para Criar Tabelas ---
+// --- 4. Função Auxiliar e Separação de Dados ---
 $createTable = function($problems) {
     $table = (new CTableInfo())
         ->setHeader([_('Time'), _('Severity'), _('Host'), _('Problem'), _('Duration'), _('Ack')]);
@@ -135,7 +129,6 @@ $createTable = function($problems) {
     return $table;
 };
 
-// Separar os dados
 $prod_problems = [];
 $non_prod_problems = [];
 
@@ -149,7 +142,7 @@ if (is_array($data['problems'])) {
     }
 }
 
-// --- 5. Montar as Abas (Tabs) ---
+// --- 5. Abas ---
 $tabs = (new CTabView())
     ->addTab('tab_prod', 
         _('Production Environment') . ' (' . count($prod_problems) . ')', 
@@ -159,12 +152,13 @@ $tabs = (new CTabView())
         _('Non-Production / Others') . ' (' . count($non_prod_problems) . ')', 
         $createTable($non_prod_problems)
     )
-    ->setSelected(0); // Abre na aba de Produção por padrão
+    ->setSelected(0);
 
-// --- 6. Renderizar Página Final ---
+// --- 6. Renderizar ---
 (new CHtmlPage())
     ->setTitle($page_title)
+    ->addItem($style_tag) // Adiciona o CSS corrigido
     ->addItem($filter)
-    ->addItem($stats_widget) // Adiciona os cards
-    ->addItem($tabs)         // Adiciona as abas com as tabelas
+    ->addItem($stats_widget)
+    ->addItem($tabs)
     ->show();
