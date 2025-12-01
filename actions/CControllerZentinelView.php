@@ -26,20 +26,18 @@ class CControllerZentinelView extends CController {
     }
 
     protected function checkPermissions(): bool {
-        // CORREÇÃO DEFINITIVA: 
-        // Verifica se o usuário logado tem permissão de "User" ou superior.
-        // A constante correta é USER_TYPE_ZABBIX_USER e precisa do '\' por ser global.
+        // Verifica permissão de usuário logado
         return $this->getUserType() >= \USER_TYPE_ZABBIX_USER;
     }
 
     protected function doAction(): void {
+        // --- 1. Gerenciamento de Filtro ---
         if ($this->hasInput('filter_rst')) {
             CProfile::delete('web.zentinel.filter.groupids');
             CProfile::delete('web.zentinel.filter.ack');
             CProfile::delete('web.zentinel.filter.age');
         }
         elseif ($this->hasInput('filter_set')) {
-            // Adicionado '\' em todas as constantes globais
             CProfile::updateArray('web.zentinel.filter.groupids', $this->getInput('filter_groupids', []), \PROFILE_TYPE_ID);
             CProfile::update('web.zentinel.filter.ack', $this->getInput('filter_ack', -1), \PROFILE_TYPE_INT);
             CProfile::update('web.zentinel.filter.age', $this->getInput('filter_age', ''), \PROFILE_TYPE_STR);
@@ -49,11 +47,11 @@ class CControllerZentinelView extends CController {
         $filter_ack      = (int)CProfile::get('web.zentinel.filter.ack', -1);
         $filter_age      = CProfile::get('web.zentinel.filter.age', '');
 
+        // --- 2. Busca de Problemas (Sem selectHosts) ---
         $options = [
-            'output' => ['eventid', 'name', 'clock', 'severity', 'acknowledged', 'r_eventid'],
-            'selectHosts' => ['hostid', 'name'],
+            'output' => ['eventid', 'objectid', 'name', 'clock', 'severity', 'acknowledged', 'r_eventid'],
             'sortfield' => ['clock'],
-            'sortorder' => \ZBX_SORT_DOWN, // Adicionado '\'
+            'sortorder' => \ZBX_SORT_DOWN,
             'recent' => true
         ];
 
@@ -66,15 +64,45 @@ class CControllerZentinelView extends CController {
         }
 
         if ($filter_age !== '') {
-            // timeUnitToSeconds e time são globais, precisam do '\'
             $seconds = \timeUnitToSeconds($filter_age);
             if ($seconds > 0) {
                 $options['time_till'] = \time() - $seconds;
             }
         }
 
+        // Executa a busca. Se falhar, retorna array vazio para não quebrar a View.
         $problems = API::Problem()->get($options);
+        if ($problems === false) {
+            $problems = [];
+        }
 
+        // --- 3. Busca de Hosts (Estratégia Two-Step) ---
+        // Problemas estão ligados a Triggers (objectid). Vamos buscar os hosts dessas triggers.
+        if ($problems) {
+            $triggerIds = array_column($problems, 'objectid');
+            
+            // Busca triggers com seus hosts
+            $triggers = API::Trigger()->get([
+                'output' => ['triggerid'],
+                'selectHosts' => ['name'], // Aqui o selectHosts funciona garantido
+                'triggerids' => $triggerIds,
+                'preservekeys' => true
+            ]);
+
+            // Mapeia o Host de volta para o Problema
+            foreach ($problems as &$problem) {
+                $triggerId = $problem['objectid'];
+                if (isset($triggers[$triggerId]) && !empty($triggers[$triggerId]['hosts'])) {
+                    // Pega o primeiro host (padrão Zabbix)
+                    $problem['host_name'] = $triggers[$triggerId]['hosts'][0]['name'];
+                } else {
+                    $problem['host_name'] = 'N/A';
+                }
+            }
+            unset($problem); // Boa prática ao usar referência
+        }
+
+        // --- 4. Busca dados para o Filtro (Select de Grupos) ---
         $data_groups = [];
         if ($filter_groupids) {
             $data_groups = API::HostGroup()->get([
@@ -83,6 +111,7 @@ class CControllerZentinelView extends CController {
             ]);
         }
 
+        // --- 5. Envia para a View ---
         $data = [
             'problems'        => $problems,
             'filter_groupids' => $data_groups,
