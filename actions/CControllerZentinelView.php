@@ -71,12 +71,12 @@ class CControllerZentinelView extends CController {
         $problems = API::Problem()->get($options);
         if ($problems === false) $problems = [];
 
-        // --- 3. Enriquecimento de Dados (Estratégia Atômica) ---
+        // --- 3. Enriquecimento de Dados (Estratégia Inversa) ---
         if ($problems) {
             $triggerIds = array_column($problems, 'objectid');
             
-            // PASSO A: Busca Triggers (Pegando apenas Hosts)
-            // Não pedimos grupos aqui. Não filtramos host por triggerid aqui.
+            // A. Busca Triggers para descobrir os Hosts
+            // (Sem pedir grupos aqui)
             $triggers = API::Trigger()->get([
                 'output' => ['triggerid'],
                 'selectHosts' => ['hostid', 'name'],
@@ -84,7 +84,7 @@ class CControllerZentinelView extends CController {
                 'preservekeys' => true
             ]);
 
-            // Coletar todos os Host IDs retornados pelas triggers
+            // B. Coleta IDs de todos os hosts envolvidos
             $hostIds = [];
             foreach ($triggers as $t) {
                 if (!empty($t['hosts'])) {
@@ -94,36 +94,41 @@ class CControllerZentinelView extends CController {
                 }
             }
 
-            // PASSO B: Busca os Grupos desses Hosts
-            // Chamada limpa de Host->get. Impossível dar erro de deprecated.
+            // C. Busca GRUPOS que contêm esses Hosts
+            // Usamos API::HostGroup em vez de Host. Isso evita o erro deprecated.
+            // Pedimos 'selectHosts' para saber qual host está em qual grupo.
             $hostGroupsMap = [];
             if (!empty($hostIds)) {
-                $hosts = API::Host()->get([
-                    'output' => ['hostid'],
-                    'selectGroups' => ['groupid'],
-                    'hostids' => $hostIds,
-                    'preservekeys' => true
+                $groups = API::HostGroup()->get([
+                    'output' => ['groupid', 'name'],
+                    'selectHosts' => ['hostid'],
+                    'hostids' => $hostIds
                 ]);
 
-                foreach ($hosts as $hid => $hdata) {
-                    $hostGroupsMap[$hid] = array_column($hdata['groups'], 'groupid');
+                // Inverte o mapa: Group -> Host vira Host -> [Groups]
+                foreach ($groups as $group) {
+                    if (!empty($group['hosts'])) {
+                        foreach ($group['hosts'] as $h) {
+                            $hostGroupsMap[$h['hostid']][] = $group['groupid'];
+                        }
+                    }
                 }
             }
 
-            // PASSO C: Cruzamento Final (Problem -> Trigger -> Host -> Groups)
+            // D. Cruza tudo
             foreach ($problems as &$problem) {
                 $tid = $problem['objectid'];
                 $problem['host_name'] = 'N/A';
                 $problem['is_production'] = false;
 
-                // 1. Acha a trigger do problema
                 if (isset($triggers[$tid]) && !empty($triggers[$tid]['hosts'])) {
                     $hostData = $triggers[$tid]['hosts'][0];
                     $problem['host_name'] = $hostData['name'];
                     $hid = $hostData['hostid'];
 
-                    // 2. Acha os grupos do host dessa trigger
+                    // Lógica de Produção
                     if (!empty($filter_prodids) && isset($hostGroupsMap[$hid])) {
+                        // Verifica se existe interseção entre os grupos do host e o filtro de produção
                         if (array_intersect($hostGroupsMap[$hid], $filter_prodids)) {
                             $problem['is_production'] = true;
                         }
@@ -151,6 +156,7 @@ class CControllerZentinelView extends CController {
         }
 
         // --- 5. Dados para Filtros ---
+        // Aqui usamos API::HostGroup pura, sem relacionamentos, só para listar no combo box
         $data_groups = [];
         if ($filter_groupids) {
             $data_groups = API::HostGroup()->get(['output' => ['groupid', 'name'], 'groupids' => $filter_groupids]);
