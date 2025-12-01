@@ -47,12 +47,11 @@ class CControllerZentinelView extends CController {
             CProfile::delete('web.zentinel.filter.prodids');
             CProfile::delete('web.zentinel.filter.ack');
             CProfile::delete('web.zentinel.filter.age');
-            CProfile::delete('web.zentinel.filter.severities'); // Adicionado
+            CProfile::delete('web.zentinel.filter.severities');
         }
         elseif ($this->hasInput('filter_set')) {
             CProfile::updateArray('web.zentinel.filter.groupids', $clean_groupids, \PROFILE_TYPE_ID);
             CProfile::updateArray('web.zentinel.filter.prodids', $clean_prodids, \PROFILE_TYPE_ID);
-            // Adicionado: Salvar severidades
             CProfile::updateArray('web.zentinel.filter.severities', $clean_severities, \PROFILE_TYPE_INT); 
             CProfile::update('web.zentinel.filter.ack', $this->getInput('filter_ack', -1), \PROFILE_TYPE_INT);
             CProfile::update('web.zentinel.filter.age', $this->getInput('filter_age', ''), \PROFILE_TYPE_STR);
@@ -61,7 +60,6 @@ class CControllerZentinelView extends CController {
         // Recupera do perfil
         $filter_groupids   = CProfile::getArray('web.zentinel.filter.groupids', []);
         $filter_prodids    = CProfile::getArray('web.zentinel.filter.prodids', []);
-        // Adicionado: Carregar severidades
         $filter_severities = CProfile::getArray('web.zentinel.filter.severities', []); 
         $filter_ack        = (int)CProfile::get('web.zentinel.filter.ack', -1);
         $filter_age        = CProfile::get('web.zentinel.filter.age', '');
@@ -84,7 +82,6 @@ class CControllerZentinelView extends CController {
             $seconds = \timeUnitToSeconds($filter_age);
             if ($seconds > 0) $options['time_till'] = \time() - $seconds;
         }
-        // Adicionado: Aplica filtro de severidade na API
         if (!empty($filter_severities)) {
             $options['severities'] = $filter_severities;
         }
@@ -96,10 +93,10 @@ class CControllerZentinelView extends CController {
         if ($problems) {
             $triggerIds = array_column($problems, 'objectid');
             
-            // A. Busca Triggers (para pegar Hosts)
+            // A. Busca Triggers (para pegar Hosts e Status)
             $triggers = API::Trigger()->get([
                 'output' => ['triggerid'],
-                'selectHosts' => ['hostid', 'name', 'status'], // Pede status para filtrar ativos
+                'selectHosts' => ['hostid', 'name', 'status'],
                 'triggerids' => $triggerIds,
                 'preservekeys' => true
             ]);
@@ -141,7 +138,7 @@ class CControllerZentinelView extends CController {
                 if (isset($triggers[$tid]) && !empty($triggers[$tid]['hosts'])) {
                     $hostData = $triggers[$tid]['hosts'][0];
                     
-                    // Verifica se Host está monitorado
+                    // Verifica se Host está monitorado (STATUS 0 = Monitorado)
                     if ((int)$hostData['status'] !== \HOST_STATUS_MONITORED) {
                         unset($problems[$key]);
                         continue;
@@ -195,7 +192,7 @@ class CControllerZentinelView extends CController {
             'filter_prodids'    => $data_prod_groups,
             'filter_ack'        => $filter_ack,
             'filter_age'        => $filter_age,
-            'filter_severities' => $filter_severities, // Passa para view
+            'filter_severities' => $filter_severities,
         ];
 
         $response = new CControllerResponseData($data);
