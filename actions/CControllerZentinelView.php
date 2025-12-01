@@ -26,7 +26,10 @@ class CControllerZentinelView extends CController {
     }
 
     protected function checkPermissions(): bool {
-        return $this->checkAccess(\CROLE_USER_TYPE_ZABBIX_USER);
+        // CORREÇÃO DEFINITIVA: 
+        // Verifica se o usuário logado tem permissão de "User" ou superior.
+        // A constante correta é USER_TYPE_ZABBIX_USER e precisa do '\' por ser global.
+        return $this->getUserType() >= \USER_TYPE_ZABBIX_USER;
     }
 
     protected function doAction(): void {
@@ -36,6 +39,7 @@ class CControllerZentinelView extends CController {
             CProfile::delete('web.zentinel.filter.age');
         }
         elseif ($this->hasInput('filter_set')) {
+            // Adicionado '\' em todas as constantes globais
             CProfile::updateArray('web.zentinel.filter.groupids', $this->getInput('filter_groupids', []), \PROFILE_TYPE_ID);
             CProfile::update('web.zentinel.filter.ack', $this->getInput('filter_ack', -1), \PROFILE_TYPE_INT);
             CProfile::update('web.zentinel.filter.age', $this->getInput('filter_age', ''), \PROFILE_TYPE_STR);
@@ -49,7 +53,7 @@ class CControllerZentinelView extends CController {
             'output' => ['eventid', 'name', 'clock', 'severity', 'acknowledged', 'r_eventid'],
             'selectHosts' => ['hostid', 'name'],
             'sortfield' => ['clock'],
-            'sortorder' => \ZBX_SORT_DOWN,
+            'sortorder' => \ZBX_SORT_DOWN, // Adicionado '\'
             'recent' => true
         ];
 
@@ -62,7 +66,7 @@ class CControllerZentinelView extends CController {
         }
 
         if ($filter_age !== '') {
-            // timeUnitToSeconds é função global, time() também
+            // timeUnitToSeconds e time são globais, precisam do '\'
             $seconds = \timeUnitToSeconds($filter_age);
             if ($seconds > 0) {
                 $options['time_till'] = \time() - $seconds;
