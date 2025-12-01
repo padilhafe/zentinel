@@ -26,7 +26,6 @@ class CControllerZentinelView extends CController {
     }
 
     protected function checkPermissions(): bool {
-        // Verifica permissão de usuário logado
         return $this->getUserType() >= \USER_TYPE_ZABBIX_USER;
     }
 
@@ -47,10 +46,9 @@ class CControllerZentinelView extends CController {
         $filter_ack      = (int)CProfile::get('web.zentinel.filter.ack', -1);
         $filter_age      = CProfile::get('web.zentinel.filter.age', '');
 
-        // --- 2. Busca de Problemas (Sem selectHosts) ---
         $options = [
             'output' => ['eventid', 'objectid', 'name', 'clock', 'severity', 'acknowledged', 'r_eventid'],
-            'sortfield' => ['clock'],
+            'sortfield' => ['eventid'], 
             'sortorder' => \ZBX_SORT_DOWN,
             'recent' => true
         ];
@@ -70,21 +68,19 @@ class CControllerZentinelView extends CController {
             }
         }
 
-        // Executa a busca. Se falhar, retorna array vazio para não quebrar a View.
         $problems = API::Problem()->get($options);
         if ($problems === false) {
             $problems = [];
         }
 
         // --- 3. Busca de Hosts (Estratégia Two-Step) ---
-        // Problemas estão ligados a Triggers (objectid). Vamos buscar os hosts dessas triggers.
         if ($problems) {
             $triggerIds = array_column($problems, 'objectid');
             
             // Busca triggers com seus hosts
             $triggers = API::Trigger()->get([
                 'output' => ['triggerid'],
-                'selectHosts' => ['name'], // Aqui o selectHosts funciona garantido
+                'selectHosts' => ['name'],
                 'triggerids' => $triggerIds,
                 'preservekeys' => true
             ]);
@@ -93,13 +89,12 @@ class CControllerZentinelView extends CController {
             foreach ($problems as &$problem) {
                 $triggerId = $problem['objectid'];
                 if (isset($triggers[$triggerId]) && !empty($triggers[$triggerId]['hosts'])) {
-                    // Pega o primeiro host (padrão Zabbix)
                     $problem['host_name'] = $triggers[$triggerId]['hosts'][0]['name'];
                 } else {
                     $problem['host_name'] = 'N/A';
                 }
             }
-            unset($problem); // Boa prática ao usar referência
+            unset($problem);
         }
 
         // --- 4. Busca dados para o Filtro (Select de Grupos) ---
@@ -111,7 +106,6 @@ class CControllerZentinelView extends CController {
             ]);
         }
 
-        // --- 5. Envia para a View ---
         $data = [
             'problems'        => $problems,
             'filter_groupids' => $data_groups,
