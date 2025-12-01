@@ -1,7 +1,5 @@
 <?php declare(strict_types = 1);
 
-use CControllerZentinelView;
-
 /**
  * @var CView $this
  * @var array $data
@@ -10,7 +8,6 @@ use CControllerZentinelView;
 $page_title = _('Zentinel: Painel de Problemas'); 
 
 // 1. Criar o Filtro
-// Ajustado para usar a ação 'zentinel.view' e o perfil 'web.zentinel.filter'
 $filter = (new CFilter())
     ->setResetUrl((new CUrl('zabbix.php'))->setArgument('action', 'zentinel.view')->setArgument('filter_rst', 1)) 
     ->setProfile('web.zentinel.filter') 
@@ -18,7 +15,6 @@ $filter = (new CFilter())
 
 // Formulário do Filtro
 $filter_form = (new CFormList())
-    // Filtro de Grupos (MultiSelect Nativo)
     ->addRow(_('Host Groups'), (new CMultiSelect([
         'name' => 'filter_groupids[]',
         'object_name' => 'hostGroup',
@@ -34,7 +30,6 @@ $filter_form = (new CFormList())
         ]
     ]))->setWidth(ZBX_TEXTAREA_FILTER_STANDARD_WIDTH))
     
-    // Filtro de Ack
     ->addRow(_('Acknowledge status'), (new CRadioButtonList('filter_ack', (int)$data['filter_ack']))
         ->addValue(_('Any'), -1)
         ->addValue(_('Yes'), 1)
@@ -42,7 +37,6 @@ $filter_form = (new CFormList())
         ->setModern(true)
     )
 
-    // Filtro de Idade (Older than)
     ->addRow(_('Older than (ex: 7d, 2h)'), 
         (new CTextBox('filter_age', $data['filter_age']))
             ->setWidth(ZBX_TEXTAREA_FILTER_SMALL_WIDTH)
@@ -51,7 +45,7 @@ $filter_form = (new CFormList())
 
 $filter->addFilterTab(_('Filter'), [$filter_form]);
 
-// 2. Criar a Tabela de Resultados
+// 2. Criar a Tabela
 $table = (new CTableInfo())
     ->setHeader([
         _('Time'),
@@ -62,16 +56,12 @@ $table = (new CTableInfo())
         _('Ack')
     ]);
 
-// Preencher a tabela com os dados processados pelo Controller
 foreach ($data['problems'] as $problem) {
-    // Calcula a duração do problema
     $duration = zbx_date2age($problem['clock']);
     
-    // Cor e rótulo da Severidade
     $severity_cell = new CCol(getSeverityName($problem['severity']));
     $severity_cell->addClass(getSeverityStyle($problem['severity']));
 
-    // Status do Ack
     $ack_status = ($problem['acknowledged'] == 1) 
         ? (new CSpan(_('Yes')))->addClass(ZBX_STYLE_GREEN) 
         : (new CSpan(_('No')))->addClass(ZBX_STYLE_RED);
@@ -88,7 +78,7 @@ foreach ($data['problems'] as $problem) {
     ]);
 }
 
-// Montar a Página Final
+// 3. Exibir
 (new CHtmlPage())
     ->setTitle($page_title)
     ->addItem($filter)
