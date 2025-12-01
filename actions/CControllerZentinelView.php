@@ -26,7 +26,7 @@ class CControllerZentinelView extends CController {
     }
 
     protected function checkPermissions(): bool {
-        return $this->checkAccess(CROLE_USER_TYPE_ZABBIX_USER);
+        return $this->checkAccess(\CROLE_USER_TYPE_ZABBIX_USER);
     }
 
     protected function doAction(): void {
@@ -36,9 +36,9 @@ class CControllerZentinelView extends CController {
             CProfile::delete('web.zentinel.filter.age');
         }
         elseif ($this->hasInput('filter_set')) {
-            CProfile::updateArray('web.zentinel.filter.groupids', $this->getInput('filter_groupids', []), PROFILE_TYPE_ID);
-            CProfile::update('web.zentinel.filter.ack', $this->getInput('filter_ack', -1), PROFILE_TYPE_INT);
-            CProfile::update('web.zentinel.filter.age', $this->getInput('filter_age', ''), PROFILE_TYPE_STR);
+            CProfile::updateArray('web.zentinel.filter.groupids', $this->getInput('filter_groupids', []), \PROFILE_TYPE_ID);
+            CProfile::update('web.zentinel.filter.ack', $this->getInput('filter_ack', -1), \PROFILE_TYPE_INT);
+            CProfile::update('web.zentinel.filter.age', $this->getInput('filter_age', ''), \PROFILE_TYPE_STR);
         }
 
         $filter_groupids = CProfile::getArray('web.zentinel.filter.groupids', []);
@@ -49,7 +49,7 @@ class CControllerZentinelView extends CController {
             'output' => ['eventid', 'name', 'clock', 'severity', 'acknowledged', 'r_eventid'],
             'selectHosts' => ['hostid', 'name'],
             'sortfield' => ['clock'],
-            'sortorder' => ZBX_SORT_DOWN,
+            'sortorder' => \ZBX_SORT_DOWN,
             'recent' => true
         ];
 
@@ -62,9 +62,10 @@ class CControllerZentinelView extends CController {
         }
 
         if ($filter_age !== '') {
-            $seconds = timeUnitToSeconds($filter_age);
+            // timeUnitToSeconds é função global, time() também
+            $seconds = \timeUnitToSeconds($filter_age);
             if ($seconds > 0) {
-                $options['time_till'] = time() - $seconds;
+                $options['time_till'] = \time() - $seconds;
             }
         }
 
