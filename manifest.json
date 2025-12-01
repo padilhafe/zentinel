@@ -1,0 +1,21 @@
+{
+    "manifest_version": 2.0,
+    "id": "zentinel",
+    "name": "Zentinel: Problem Focus",
+    "version": "0.0.1",
+    "namespace": "Zentinel",
+    "author": "Felipe Duellis Padilha",
+    "url": "https://khomp.com",
+    "description": "Visualização otimizada de problemas com filtros avançados de Ack e Idade.",
+    "actions": {
+        "zentinel.view": {
+            "class": "CControllerZentinelView",
+            "view": "module.monitoring.zentinel.view"
+        },
+        "zentinel.view.refresh": {
+            "class": "CControllerZentinelRefresh",
+            "view": "module.monitoring.zentinel.view.refresh",
+            "layout": "layout.json"
+        }
+    }
+}
