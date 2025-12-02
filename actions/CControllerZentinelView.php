@@ -21,7 +21,6 @@ class CControllerZentinelView extends CController {
             'filter_set'        => 'in 1',
             'filter_rst'        => 'in 1',
             'filter_severities' => 'array',
-            // Novos campos de ordenação
             'sort'              => 'in clock,severity',
             'sortorder'         => 'in '.ZBX_SORT_DOWN.','.ZBX_SORT_UP
         ];
@@ -37,17 +36,16 @@ class CControllerZentinelView extends CController {
         $sortField = $this->getInput('sort', CProfile::get('web.zentinel.sort', 'clock'));
         $sortOrder = $this->getInput('sortorder', CProfile::get('web.zentinel.sortorder', ZBX_SORT_DOWN));
 
-        // Salva preferência de ordenação
         CProfile::update('web.zentinel.sort', $sortField, PROFILE_TYPE_STR);
         CProfile::update('web.zentinel.sortorder', $sortOrder, PROFILE_TYPE_STR);
 
-        // Sanitização Filtros
+        // Sanitização
         $raw_severities = $this->getInput('filter_severities', []);
         $clean_severities = array_filter($raw_severities, 'is_numeric');
         $raw_nonprodids = $this->getInput('filter_nonprodids', []);
         $clean_nonprodids = array_filter($raw_nonprodids);
 
-        // --- 1. Filtros (Salvar/Resetar) ---
+        // --- 1. Filtros ---
         if ($this->hasInput('filter_rst')) {
             CProfile::delete('web.zentinel.filter.nonprodids');
             CProfile::delete('web.zentinel.filter.ack');
@@ -67,13 +65,12 @@ class CControllerZentinelView extends CController {
         $filter_age        = CProfile::get('web.zentinel.filter.age', '');
 
         // --- 2. Busca de Problemas ---
-        // Mapeamento de ordenação para API
-        $apiSortField = ($sortField === 'clock') ? 'eventid' : 'severity';
-
+        // CORREÇÃO CRÍTICA: problem.get exige sortfield='eventid'. 
+        // Não podemos passar 'severity' aqui, ou a API retorna erro.
         $options = [
             'output' => ['eventid', 'objectid', 'name', 'clock', 'severity', 'acknowledged'],
-            'sortfield' => [$apiSortField], 
-            'sortorder' => $sortOrder,
+            'sortfield' => ['eventid'], 
+            'sortorder' => $sortOrder, // API ordena IDs (cronologia) corretamente
             'recent' => false
         ];
 
@@ -142,7 +139,21 @@ class CControllerZentinelView extends CController {
             unset($problem);
         }
 
-        // --- 4. Estatísticas e Gráfico ---
+        // --- 4. Ordenação Manual por Severidade (Se necessário) ---
+        // Como a API não ordena por severidade, fazemos isso aqui no PHP
+        if ($sortField === 'severity') {
+            uasort($problems, function($a, $b) use ($sortOrder) {
+                if ($a['severity'] == $b['severity']) return 0;
+                // Lógica de comparação
+                if ($sortOrder === ZBX_SORT_UP) {
+                    return ($a['severity'] < $b['severity']) ? -1 : 1;
+                } else {
+                    return ($a['severity'] > $b['severity']) ? -1 : 1;
+                }
+            });
+        }
+
+        // --- 5. Estatísticas e Gráfico ---
         $stats = [
             'total' => count($problems),
             'ack_count' => 0,
@@ -150,10 +161,8 @@ class CControllerZentinelView extends CController {
             'avg_duration' => 0
         ];
         
-        // Preparar Gráfico (Últimas 12 horas)
         $trend_data = [];
         for ($i = 11; $i >= 0; $i--) {
-            // Chave = Hora (ex: "14:00")
             $key = date('H:00', strtotime("-$i hours"));
             $trend_data[$key] = 0;
         }
@@ -164,18 +173,15 @@ class CControllerZentinelView extends CController {
             if ($p['severity'] >= \TRIGGER_SEVERITY_HIGH) $stats['critical_count']++;
             $total_duration += (\time() - (int)$p['clock']);
 
-            // Popula Gráfico
             $p_hour = date('H:00', (int)$p['clock']);
-            if (isset($trend_data[$p_hour])) {
-                $trend_data[$p_hour]++;
-            }
+            if (isset($trend_data[$p_hour])) $trend_data[$p_hour]++;
         }
         
         if ($stats['total'] > 0) {
             $stats['avg_duration'] = \zbx_date2age(0, (int)($total_duration / $stats['total']));
         }
 
-        // --- 5. Dados Finais ---
+        // --- 6. Dados Finais ---
         $data_nonprod_groups = [];
         if (!empty($filter_nonprodids)) {
             $data_nonprod_groups = API::HostGroup()->get(['output' => ['groupid', 'name'], 'groupids' => $filter_nonprodids]);
@@ -184,7 +190,7 @@ class CControllerZentinelView extends CController {
         $data = [
             'problems'          => $problems,
             'stats'             => $stats,
-            'trend_data'        => $trend_data, // Dados do Gráfico
+            'trend_data'        => $trend_data,
             'filter_nonprodids' => $data_nonprod_groups,
             'filter_ack'        => $filter_ack,
             'filter_age'        => $filter_age,
