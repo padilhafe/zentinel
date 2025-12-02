@@ -15,12 +15,17 @@ class CControllerZentinelView extends CController {
 
     protected function checkInput(): bool {
         $fields = [
+            // Filtros de Escopo (O que buscar)
+            'filter_groupids'   => 'array',
+            'filter_hostids'    => 'array',
+            // Filtros de Classificação e Estado
             'filter_nonprodids' => 'array',
             'filter_ack'        => 'in -1,0,1',
             'filter_age'        => 'string',
             'filter_set'        => 'in 1',
             'filter_rst'        => 'in 1',
             'filter_severities' => 'array',
+            // Ordenação
             'sort'              => 'in clock,severity',
             'sortorder'         => 'in '.ZBX_SORT_DOWN.','.ZBX_SORT_UP
         ];
@@ -40,40 +45,53 @@ class CControllerZentinelView extends CController {
         CProfile::update('web.zentinel.sortorder', $sortOrder, PROFILE_TYPE_STR);
 
         // Sanitização
-        $raw_severities = $this->getInput('filter_severities', []);
-        $clean_severities = array_filter($raw_severities, 'is_numeric');
-        $raw_nonprodids = $this->getInput('filter_nonprodids', []);
-        $clean_nonprodids = array_filter($raw_nonprodids);
+        $clean_severities = array_filter($this->getInput('filter_severities', []), 'is_numeric');
+        $clean_nonprodids = array_filter($this->getInput('filter_nonprodids', []));
+        $clean_groupids   = array_filter($this->getInput('filter_groupids', []));
+        $clean_hostids    = array_filter($this->getInput('filter_hostids', []));
 
-        // --- 1. Filtros ---
+        // --- 1. Filtros (Salvar/Resetar) ---
         if ($this->hasInput('filter_rst')) {
+            CProfile::delete('web.zentinel.filter.groupids');
+            CProfile::delete('web.zentinel.filter.hostids');
             CProfile::delete('web.zentinel.filter.nonprodids');
             CProfile::delete('web.zentinel.filter.ack');
             CProfile::delete('web.zentinel.filter.age');
             CProfile::delete('web.zentinel.filter.severities');
         }
         elseif ($this->hasInput('filter_set')) {
+            CProfile::updateArray('web.zentinel.filter.groupids', $clean_groupids, \PROFILE_TYPE_ID);
+            CProfile::updateArray('web.zentinel.filter.hostids', $clean_hostids, \PROFILE_TYPE_ID);
             CProfile::updateArray('web.zentinel.filter.nonprodids', $clean_nonprodids, \PROFILE_TYPE_ID);
             CProfile::updateArray('web.zentinel.filter.severities', $clean_severities, \PROFILE_TYPE_INT); 
             CProfile::update('web.zentinel.filter.ack', $this->getInput('filter_ack', -1), \PROFILE_TYPE_INT);
             CProfile::update('web.zentinel.filter.age', $this->getInput('filter_age', ''), \PROFILE_TYPE_STR);
         }
 
+        // Recupera do perfil
+        $filter_groupids   = CProfile::getArray('web.zentinel.filter.groupids', []);
+        $filter_hostids    = CProfile::getArray('web.zentinel.filter.hostids', []);
         $filter_nonprodids = CProfile::getArray('web.zentinel.filter.nonprodids', []);
         $filter_severities = CProfile::getArray('web.zentinel.filter.severities', []); 
         $filter_ack        = (int)CProfile::get('web.zentinel.filter.ack', -1);
         $filter_age        = CProfile::get('web.zentinel.filter.age', '');
 
         // --- 2. Busca de Problemas ---
-        // CORREÇÃO CRÍTICA: problem.get exige sortfield='eventid'. 
-        // Não podemos passar 'severity' aqui, ou a API retorna erro.
         $options = [
             'output' => ['eventid', 'objectid', 'name', 'clock', 'severity', 'acknowledged'],
             'sortfield' => ['eventid'], 
-            'sortorder' => $sortOrder, // API ordena IDs (cronologia) corretamente
+            'sortorder' => $sortOrder,
             'recent' => false
         ];
 
+        // APLICANDO FILTROS DE ESCOPO NA API (Performance Máxima)
+        if (!empty($filter_groupids)) {
+            $options['groupids'] = $filter_groupids;
+        }
+        if (!empty($filter_hostids)) {
+            $options['hostids'] = $filter_hostids;
+        }
+        // Aplica outros filtros
         if ($filter_ack !== -1) $options['acknowledged'] = ($filter_ack == 1);
         if ($filter_age !== '') {
             $seconds = \timeUnitToSeconds($filter_age);
@@ -129,6 +147,7 @@ class CControllerZentinelView extends CController {
                     $problem['host_name'] = $hostData['name'];
                     $hid = $hostData['hostid'];
 
+                    // Lógica de Classificação (Prod vs Non-Prod)
                     if (!empty($filter_nonprodids) && isset($hostGroupsMap[$hid])) {
                         if (array_intersect($hostGroupsMap[$hid], $filter_nonprodids)) {
                             $problem['is_production'] = false;
@@ -139,12 +158,10 @@ class CControllerZentinelView extends CController {
             unset($problem);
         }
 
-        // --- 4. Ordenação Manual por Severidade (Se necessário) ---
-        // Como a API não ordena por severidade, fazemos isso aqui no PHP
+        // --- 4. Ordenação Manual por Severidade ---
         if ($sortField === 'severity') {
             uasort($problems, function($a, $b) use ($sortOrder) {
                 if ($a['severity'] == $b['severity']) return 0;
-                // Lógica de comparação
                 if ($sortOrder === ZBX_SORT_UP) {
                     return ($a['severity'] < $b['severity']) ? -1 : 1;
                 } else {
@@ -181,9 +198,21 @@ class CControllerZentinelView extends CController {
             $stats['avg_duration'] = \zbx_date2age(0, (int)($total_duration / $stats['total']));
         }
 
-        // --- 6. Dados Finais ---
+        // --- 6. Dados Finais para a View ---
+        
+        // Busca Nomes para os Selects
+        $data_filter_groups = [];
+        if ($filter_groupids) {
+            $data_filter_groups = API::HostGroup()->get(['output' => ['groupid', 'name'], 'groupids' => $filter_groupids]);
+        }
+        
+        $data_filter_hosts = [];
+        if ($filter_hostids) {
+            $data_filter_hosts = API::Host()->get(['output' => ['hostid', 'name'], 'hostids' => $filter_hostids]);
+        }
+
         $data_nonprod_groups = [];
-        if (!empty($filter_nonprodids)) {
+        if ($filter_nonprodids) {
             $data_nonprod_groups = API::HostGroup()->get(['output' => ['groupid', 'name'], 'groupids' => $filter_nonprodids]);
         }
 
@@ -191,6 +220,9 @@ class CControllerZentinelView extends CController {
             'problems'          => $problems,
             'stats'             => $stats,
             'trend_data'        => $trend_data,
+            // Dados dos Filtros
+            'filter_groupids'   => $data_filter_groups,
+            'filter_hostids'    => $data_filter_hosts,
             'filter_nonprodids' => $data_nonprod_groups,
             'filter_ack'        => $filter_ack,
             'filter_age'        => $filter_age,
