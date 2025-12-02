@@ -28,9 +28,7 @@ foreach ($severities as $severity => $label) {
 }
 
 $filter_form = (new CFormList())
-    // ----------------------------------------------------
-    // NOVOS FILTROS DE ESCOPO (Igual Latest Data)
-    // ----------------------------------------------------
+    // Filtros de Escopo
     ->addRow(_('Host groups'), (new CMultiSelect([
         'name' => 'filter_groupids[]',
         'object_name' => 'hostGroup',
@@ -62,9 +60,7 @@ $filter_form = (new CFormList())
         ]
     ]))->setWidth(ZBX_TEXTAREA_FILTER_STANDARD_WIDTH))
     
-    // ----------------------------------------------------
-    // CLASSIFICAÇÃO E OPÇÕES
-    // ----------------------------------------------------
+    // Filtros de Classificação
     ->addRow(_('Define as Non-Production'), (new CMultiSelect([
         'name' => 'filter_nonprodids[]',
         'object_name' => 'hostGroup',
@@ -85,14 +81,17 @@ $filter_form = (new CFormList())
 
 $filter->addFilterTab(_('Configuração de Visualização'), [$filter_form]);
 
-// 2. CSS Profissional (Kanban Style)
+// 2. CSS Profissional
 $css_content = '
     .zentinel-stats { display: flex; gap: 15px; margin-bottom: 20px; }
     .zentinel-kpi { flex: 1; background: #fff; padding: 15px; border-radius: 4px; border: 1px solid #dbe1e5; text-align: center; }
     .zentinel-value { font-size: 24px; font-weight: bold; display: block; }
     .zentinel-label { font-size: 10px; text-transform: uppercase; color: #768d99; }
+    
+    /* Cores KPI Texto */
     .kpi-red .zentinel-value { color: #e45959; }
     .kpi-green .zentinel-value { color: #59db8f; }
+    .kpi-orange .zentinel-value { color: #f24f1d; }
 
     /* Graph Styles */
     .trend-container {
@@ -109,12 +108,7 @@ $css_content = '
     /* KANBAN BOARD */
     .kanban-board { display: flex; gap: 15px; align-items: flex-start; overflow-x: auto; padding-bottom: 10px; }
     .kanban-col { 
-        flex: 1; 
-        min-width: 300px; 
-        background: #f4f4f4; 
-        border-radius: 6px; 
-        padding: 10px;
-        border-top: 4px solid #ccc;
+        flex: 1; min-width: 300px; background: #f4f4f4; border-radius: 6px; padding: 10px; border-top: 4px solid #ccc;
     }
     .dark-theme .kanban-col { background: #2b2b2b; border-color: #383838; }
 
@@ -155,11 +149,33 @@ $css_content = '
 ';
 $style_tag = new CTag('style', true, $css_content);
 
-// 3. KPI Widgets
+// 3. KPI Widgets (RESTAURADO)
 $stats_widget = (new CDiv())->addClass('zentinel-stats');
-$stats_widget->addItem((new CDiv([(new CSpan($data['stats']['total']))->addClass('zentinel-value'), (new CSpan(_('Active Alerts')))->addClass('zentinel-label')]))->addClass('zentinel-kpi'));
-$stats_widget->addItem((new CDiv([(new CSpan($data['stats']['critical_count']))->addClass('zentinel-value kpi-red'), (new CSpan(_('Critical')))->addClass('zentinel-label')]))->addClass('zentinel-kpi'));
-$stats_widget->addItem((new CDiv([(new CSpan($data['stats']['ack_count']))->addClass('zentinel-value kpi-green'), (new CSpan(_('Acked')))->addClass('zentinel-label')]))->addClass('zentinel-kpi'));
+
+// Card 1: Total
+$stats_widget->addItem((new CDiv([
+    (new CSpan($data['stats']['total']))->addClass('zentinel-value'), 
+    (new CSpan(_('Active Alerts')))->addClass('zentinel-label')
+]))->addClass('zentinel-kpi'));
+
+// Card 2: Críticos
+$stats_widget->addItem((new CDiv([
+    (new CSpan($data['stats']['critical_count']))->addClass('zentinel-value kpi-red'), 
+    (new CSpan(_('Critical')))->addClass('zentinel-label')
+]))->addClass('zentinel-kpi'));
+
+// Card 3: Acked
+$stats_widget->addItem((new CDiv([
+    (new CSpan($data['stats']['ack_count']))->addClass('zentinel-value kpi-green'), 
+    (new CSpan(_('Acked')))->addClass('zentinel-label')
+]))->addClass('zentinel-kpi'));
+
+// Card 4: Duração Média (RESTAURADO)
+$stats_widget->addItem((new CDiv([
+    (new CSpan($data['stats']['avg_duration']))->addClass('zentinel-value kpi-orange'), 
+    (new CSpan(_('Avg Response Time')))->addClass('zentinel-label')
+]))->addClass('zentinel-kpi'));
+
 
 // 4. Trend Graph Widget
 $trend_widget = (new CDiv())->addClass('trend-container');
