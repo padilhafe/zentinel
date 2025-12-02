@@ -15,17 +15,14 @@ class CControllerZentinelView extends CController {
 
     protected function checkInput(): bool {
         $fields = [
-            // Filtros de Escopo (O que buscar)
             'filter_groupids'   => 'array',
             'filter_hostids'    => 'array',
-            // Filtros de Classificação e Estado
             'filter_nonprodids' => 'array',
             'filter_ack'        => 'in -1,0,1',
             'filter_age'        => 'string',
             'filter_set'        => 'in 1',
             'filter_rst'        => 'in 1',
             'filter_severities' => 'array',
-            // Ordenação
             'sort'              => 'in clock,severity',
             'sortorder'         => 'in '.ZBX_SORT_DOWN.','.ZBX_SORT_UP
         ];
@@ -37,7 +34,7 @@ class CControllerZentinelView extends CController {
     }
 
     protected function doAction(): void {
-        // --- 0. Inputs e Ordenação ---
+        // Inputs
         $sortField = $this->getInput('sort', CProfile::get('web.zentinel.sort', 'clock'));
         $sortOrder = $this->getInput('sortorder', CProfile::get('web.zentinel.sortorder', ZBX_SORT_DOWN));
 
@@ -50,7 +47,7 @@ class CControllerZentinelView extends CController {
         $clean_groupids   = array_filter($this->getInput('filter_groupids', []));
         $clean_hostids    = array_filter($this->getInput('filter_hostids', []));
 
-        // --- 1. Filtros (Salvar/Resetar) ---
+        // Filtros
         if ($this->hasInput('filter_rst')) {
             CProfile::delete('web.zentinel.filter.groupids');
             CProfile::delete('web.zentinel.filter.hostids');
@@ -68,7 +65,6 @@ class CControllerZentinelView extends CController {
             CProfile::update('web.zentinel.filter.age', $this->getInput('filter_age', ''), \PROFILE_TYPE_STR);
         }
 
-        // Recupera do perfil
         $filter_groupids   = CProfile::getArray('web.zentinel.filter.groupids', []);
         $filter_hostids    = CProfile::getArray('web.zentinel.filter.hostids', []);
         $filter_nonprodids = CProfile::getArray('web.zentinel.filter.nonprodids', []);
@@ -76,7 +72,7 @@ class CControllerZentinelView extends CController {
         $filter_ack        = (int)CProfile::get('web.zentinel.filter.ack', -1);
         $filter_age        = CProfile::get('web.zentinel.filter.age', '');
 
-        // --- 2. Busca de Problemas ---
+        // Busca de Problemas
         $options = [
             'output' => ['eventid', 'objectid', 'name', 'clock', 'severity', 'acknowledged'],
             'sortfield' => ['eventid'], 
@@ -84,14 +80,9 @@ class CControllerZentinelView extends CController {
             'recent' => false
         ];
 
-        // APLICANDO FILTROS DE ESCOPO NA API (Performance Máxima)
-        if (!empty($filter_groupids)) {
-            $options['groupids'] = $filter_groupids;
-        }
-        if (!empty($filter_hostids)) {
-            $options['hostids'] = $filter_hostids;
-        }
-        // Aplica outros filtros
+        // Aplica filtros globais
+        if (!empty($filter_groupids)) $options['groupids'] = $filter_groupids;
+        if (!empty($filter_hostids)) $options['hostids'] = $filter_hostids;
         if ($filter_ack !== -1) $options['acknowledged'] = ($filter_ack == 1);
         if ($filter_age !== '') {
             $seconds = \timeUnitToSeconds($filter_age);
@@ -102,7 +93,7 @@ class CControllerZentinelView extends CController {
         $problems = API::Problem()->get($options);
         if ($problems === false) $problems = [];
 
-        // --- 3. Enriquecimento ---
+        // Enriquecimento dos Problemas
         if ($problems) {
             $triggerIds = array_column($problems, 'objectid');
             $triggers = API::Trigger()->get([
@@ -147,7 +138,6 @@ class CControllerZentinelView extends CController {
                     $problem['host_name'] = $hostData['name'];
                     $hid = $hostData['hostid'];
 
-                    // Lógica de Classificação (Prod vs Non-Prod)
                     if (!empty($filter_nonprodids) && isset($hostGroupsMap[$hid])) {
                         if (array_intersect($hostGroupsMap[$hid], $filter_nonprodids)) {
                             $problem['is_production'] = false;
@@ -158,7 +148,7 @@ class CControllerZentinelView extends CController {
             unset($problem);
         }
 
-        // --- 4. Ordenação Manual por Severidade ---
+        // Ordenação Manual
         if ($sortField === 'severity') {
             uasort($problems, function($a, $b) use ($sortOrder) {
                 if ($a['severity'] == $b['severity']) return 0;
@@ -170,7 +160,7 @@ class CControllerZentinelView extends CController {
             });
         }
 
-        // --- 5. Estatísticas e Gráfico ---
+        // Dados do Gráfico
         $stats = [
             'total' => count($problems),
             'ack_count' => 0,
@@ -180,6 +170,7 @@ class CControllerZentinelView extends CController {
         
         $trend_data = [];
         for ($i = 11; $i >= 0; $i--) {
+            // Chave é apenas a Hora (ex: "14:00")
             $key = date('H:00', strtotime("-$i hours"));
             $trend_data[$key] = 0;
         }
@@ -198,19 +189,15 @@ class CControllerZentinelView extends CController {
             $stats['avg_duration'] = \zbx_date2age(0, (int)($total_duration / $stats['total']));
         }
 
-        // --- 6. Dados Finais para a View ---
-        
-        // Busca Nomes para os Selects
+        // Dados Finais
         $data_filter_groups = [];
         if ($filter_groupids) {
             $data_filter_groups = API::HostGroup()->get(['output' => ['groupid', 'name'], 'groupids' => $filter_groupids]);
         }
-        
         $data_filter_hosts = [];
         if ($filter_hostids) {
             $data_filter_hosts = API::Host()->get(['output' => ['hostid', 'name'], 'hostids' => $filter_hostids]);
         }
-
         $data_nonprod_groups = [];
         if ($filter_nonprodids) {
             $data_nonprod_groups = API::HostGroup()->get(['output' => ['groupid', 'name'], 'groupids' => $filter_nonprodids]);
@@ -220,7 +207,6 @@ class CControllerZentinelView extends CController {
             'problems'          => $problems,
             'stats'             => $stats,
             'trend_data'        => $trend_data,
-            // Dados dos Filtros
             'filter_groupids'   => $data_filter_groups,
             'filter_hostids'    => $data_filter_hosts,
             'filter_nonprodids' => $data_nonprod_groups,
